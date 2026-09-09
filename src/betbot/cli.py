@@ -253,7 +253,6 @@ def load_trained_model(sport, games_db: str = "data/games.db"):
     sin entrenar: apostar con ratings a 1500 para todos es peor que no apostar.
     """
     from betbot.ingest.store import GameStore
-    from betbot.types import Sport
 
     store = GameStore(games_db)
     rows = store.training_rows(sport)
