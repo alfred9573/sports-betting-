@@ -9,8 +9,8 @@ ya descontado el margen. Emite **señales**; las apuestas se ponen a mano.
 ## Estado
 
 Pipeline completo (`odds → modelo → EV → alerta`) más capa de ingesta histórica
-y backtest walk-forward. **Los modelos NBA y MLB están entrenados y validados
-con datos reales**: 20.536 partidos de NBA y 34.914 de MLB.
+y backtest walk-forward. **Los cuatro deportes están entrenados y validados con
+datos reales**: 71.086 partidos en total (NBA, MLB, NFL y Premier League).
 
 Lo que falta para operar: registrar odds de cierre en vivo y validar con dinero
 de papel. Ver *Lo que falta* al final.
@@ -25,7 +25,7 @@ pip install -e ".[dev]"
 python -m betbot.cli demo                              # pipeline, datos sintéticos, sin red
 python -m betbot.cli ingest --sport nba --from 2000 --to 2015
 python -m betbot.cli backtest --sport nba              # walk-forward real
-pytest -q                                              # 207 tests
+pytest -q                                              # 240 tests
 ```
 
 El núcleo no tiene dependencias: solo stdlib. `pandas`/`requests` quedan en el
@@ -43,12 +43,14 @@ odds/         Proveedores de cotizaciones + eliminación de vig (multiplicative/
 models/       Un módulo por deporte, todos con la misma interfaz ProbabilityModel
   elo.py        Elo genérico con margen de victoria (base de NBA y MLB)
   nba.py        Elo + encogimiento
+  nfl.py        Elo con margen de victoria
   pitchers.py   Ratings de abridor MLB (medido: aporta ~nada, ver abajo)
   mlb.py        Elo + Pythagorean + ajuste de abridor + techo de probabilidad
   soccer.py     Poisson bivariado con corrección Dixon-Coles
 ev/           Motor de EV, Kelly fraccionado y filtros de riesgo
 backtest/     Brier, log-loss, calibración, CLV, ROI con error típico
-  walkforward.py  Validación sin fuga temporal
+  walkforward.py  Validación sin fuga temporal (binaria y multiclase)
+  multiclass.py   RPS, log-loss y calibración por clase para 1X2
 alerts/       Consola y Telegram
 storage.py    SQLite: señales, odds de cierre, liquidación
 closing.py    Captura de línea de cierre (el job que hace medible el CLV)
@@ -60,24 +62,46 @@ El motor de EV no sabe nada de baloncesto, béisbol ni fútbol: solo consume
 
 ## Resultados medidos
 
-Walk-forward estricto (el modelo solo ve partidos anteriores al que predice).
-Baseline = predecir siempre la tasa base de victoria local.
+Walk-forward estricto (el modelo solo ve partidos anteriores al que predice),
+con selección de parámetros en un periodo temprano y validación en un holdout
+posterior nunca visto. Baseline = predecir siempre la frecuencia base.
 
-| Deporte | Partidos | Log-loss modelo | Baseline | **Mejora** | Acierto |
-|---|---|---|---|---|---|
-| **NBA** | 20.536 (2000-2015) | 0.5979 | 0.6757 | **0.0778** | 67.2% |
-| **MLB** | 34.914 (2010-2025) | 0.6788 | 0.6903 | **0.0116** | 56.7% |
+| Deporte | Partidos | Log-loss | Baseline | Mejora | **Relativa** | Acierto |
+|---|---|---|---|---|---|---|
+| **NBA** | 20.536 | 0.5979 | 0.6757 | +0.0778 | **11.5%** | 67.2% |
+| **NFL** | 7.276 | 0.6254 | 0.6854 | +0.0600 | **8.8%** | 65.6% |
+| **Fútbol (EPL)** | 8.360 | 0.9905 | 1.0643 | +0.0739 | **6.9%** | 52.6% |
+| **MLB** | 34.914 | 0.6788 | 0.6903 | +0.0116 | **1.7%** | 56.7% |
 
-**El edge del modelo en NBA es ~6,7× el de MLB**, y eso cambia el plan de
-arranque. La intuición era empezar por MLB por volumen (2430 partidos/temporada
-frente a 1230); la medición dice que el béisbol tiene mucha más data pero
-muchísima menos señal por partido. En el barrido de MLB, 27 combinaciones de
-parámetros caben en un rango de log-loss de 0,0016: el modelo es casi insensible
-a su propia configuración porque apenas hay nada que extraer.
+El fútbol usa log-loss multiclase (tres resultados, baseline ln(3)=1.0986), así
+que su columna relativa no es estrictamente comparable con las binarias. Por RPS
+—la métrica estándar de 1X2— queda en 0.2012 frente a un baseline de 0.2272, una
+mejora relativa del 11,4%, muy cerca de la NBA.
 
-**Empieza por NBA.**
+**El orden por calidad de modelo es NBA > fútbol ≈ NFL >> MLB.**
 
-### Lo que encontró la tabla de calibración
+### Me equivoqué sobre la NFL
+
+Argumenté dos veces que la NFL iba al final porque "17 partidos por temporada es
+demasiado poco para separar señal de ruido". Medido, es falso: la NFL da +0.0600
+de mejora sobre baseline, **cinco veces la de MLB** y en el mismo rango que NBA.
+Se modela bien por las mismas razones que el baloncesto — diferencias de talento
+grandes, sin empates, ventaja de local que pesa.
+
+Lo que sí sobrevive del argumento, pero es otra cosa: la NFL ofrece ~285 partidos
+por temporada frente a 1.230 de NBA. Eso no degrada la calidad de la predicción,
+degrada **la velocidad a la que puedes validar** con CLV y ROI. Son pocas
+oportunidades de apuesta, no malas.
+
+### Y el volumen de MLB no compensa su falta de señal
+
+La intuición inicial era empezar por MLB por volumen (2430 partidos/temporada).
+La medición dice lo contrario: el béisbol tiene el doble de datos que la NBA y
+una séptima parte del edge. En el barrido de MLB, 27 combinaciones de parámetros
+caben en un rango de log-loss de 0,0016 — el modelo es casi insensible a su
+propia configuración porque apenas hay nada que extraer.
+
+### Lo que encontró la tabla de calibración (NBA)
 
 Los agregados no lo habrían detectado. Con los parámetros iniciales (escritos de
 memoria: `k=20`, ventaja de local 60 puntos de Elo), el log-loss salía razonable
@@ -126,6 +150,25 @@ midan al lanzador *directamente* (FIP, xFIP, SIERA), no inferirlo del resultado
 del equipo. `MLBModel.pitcher_elo` acepta cualquier fuente de ajustes — aliméntalo
 con eso y vuelve a medir. No merece la pena refinar más el método por inferencia:
 ya está medido y no llega.
+
+### Y en fútbol: el empate estaba mal calibrado
+
+Mismo patrón, otro deporte. El `rho` de Dixon-Coles se escribió como -0.13 (el
+valor del paper original sobre datos ingleses de los 90). Medido sobre 8.360
+partidos reales, hace falta **más del doble**:
+
+| Configuración | Holdout RPS | \|gap\|max |
+|---|---|---|
+| Inicial (hfa 1.30, rho -0.13, decay 0.0065) | 0.2039 | 2.29% |
+| Calibrada (hfa 1.44, rho -0.28, decay 0.0030) | 0.2012 | 1.87% |
+
+Con rho=-0.13 el empate quedaba infravalorado entre 2,2 y 2,9 puntos porcentuales
+en **todas** las configuraciones probadas. A cuota 3.40 ese es exactamente el
+rango donde el bot creería ver valor en el empate sin que lo haya.
+
+Señal de que no es overfitting: la misma combinación gana en los dos criterios a
+la vez —mejor RPS y mejor calibración por clase (gap máximo 0,08% en train)—, y
+generaliza al holdout.
 
 ## Las tres decisiones que sostienen el sistema
 
@@ -184,7 +227,8 @@ y medio. El cliente usa un mercado y una región por defecto, y expone
 |---|---|---|---|
 | Retrosheet (espejo Chadwick) | MLB | 1871-2025 | ✅ validada, 0 descartes |
 | FiveThirtyEight Elo | NBA | 1946-2015 | ✅ validada, 0 descartes |
-| engsoccerdata | Fútbol inglés | 1888-2016 | ✅ parseo validado |
+| nflverse/nfldata | NFL | 1999-2025 | ✅ validada, 0 descartes |
+| engsoccerdata | Fútbol inglés | 1888-2016 | ✅ validada, 0 descartes |
 | MLB StatsAPI | MLB | actual + histórico | ⚠️ sin probar en vivo |
 | ESPN scoreboard | NBA/NFL/MLB/fútbol | temporadas recientes | ⚠️ sin probar en vivo |
 
@@ -224,11 +268,11 @@ crece, el job no corre con frecuencia suficiente y te estás quedando ciego.
 3. **MLE Dixon-Coles** en fútbol: `fit()` usa estimador de momentos, suficiente
    para validar el pipeline, insuficiente para producción. Y usar xG en vez de
    goles, que predice mejor.
-4. **Validación del modelo de fútbol**: los datos se ingieren pero aún no se ha
-   corrido un walk-forward de 1X2 (necesita métricas multiclase, no las binarias
-   actuales).
-5. **NFL**: deliberadamente al final. 17 partidos por temporada es demasiado poco
-   para separar señal de ruido, y lo medido en MLB refuerza la duda.
+4. **Más ligas de fútbol**: solo está validada la Premier League. La Liga MX y
+   el resto de ligas top-5 necesitan su fuente y su tabla de alias (`teams.py`
+   solo tiene equipos ingleses por ahora).
+5. **xG en lugar de goles** para el modelo de fútbol: predice mejor que el
+   resultado real, que es una muestra pequeñísima de un proceso ruidoso.
 
 ## Advertencia
 

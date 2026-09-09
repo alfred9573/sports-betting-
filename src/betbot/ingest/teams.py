@@ -108,6 +108,45 @@ MLB_TEAMS: dict[str, list[str]] = {
     "Washington Nationals": ["WSH", "WAS", "WSN", "Washington", "Montreal Expos", "MON"],
 }
 
+# NFL. Los codigos de nflverse incluyen sedes historicas: STL/LA (Rams),
+# SD/LAC (Chargers), OAK/LV (Raiders). Sin mapearlos, cada mudanza parte una
+# franquicia en dos equipos distintos y ambos arrancan sin historial.
+NFL_TEAMS: dict[str, list[str]] = {
+    "Arizona Cardinals": ["ARI", "Cardinals", "Arizona"],
+    "Atlanta Falcons": ["ATL", "Falcons", "Atlanta"],
+    "Baltimore Ravens": ["BAL", "Ravens", "Baltimore"],
+    "Buffalo Bills": ["BUF", "Bills", "Buffalo"],
+    "Carolina Panthers": ["CAR", "Panthers", "Carolina"],
+    "Chicago Bears": ["CHI", "Bears", "Chicago"],
+    "Cincinnati Bengals": ["CIN", "Bengals", "Cincinnati"],
+    "Cleveland Browns": ["CLE", "Browns", "Cleveland"],
+    "Dallas Cowboys": ["DAL", "Cowboys", "Dallas"],
+    "Denver Broncos": ["DEN", "Broncos", "Denver"],
+    "Detroit Lions": ["DET", "Lions", "Detroit"],
+    "Green Bay Packers": ["GB", "GNB", "Packers", "Green Bay"],
+    "Houston Texans": ["HOU", "Texans", "Houston"],
+    "Indianapolis Colts": ["IND", "Colts", "Indianapolis"],
+    "Jacksonville Jaguars": ["JAX", "JAC", "Jaguars", "Jacksonville"],
+    "Kansas City Chiefs": ["KC", "KAN", "Chiefs", "Kansas City"],
+    "Las Vegas Raiders": ["LV", "OAK", "LVR", "Raiders", "Oakland Raiders"],
+    "Los Angeles Chargers": ["LAC", "SD", "SDG", "Chargers", "San Diego Chargers"],
+    "Los Angeles Rams": ["LA", "LAR", "STL", "Rams", "St. Louis Rams", "St Louis Rams"],
+    "Miami Dolphins": ["MIA", "Dolphins", "Miami"],
+    "Minnesota Vikings": ["MIN", "Vikings", "Minnesota"],
+    "New England Patriots": ["NE", "NWE", "Patriots", "New England"],
+    "New Orleans Saints": ["NO", "NOR", "Saints", "New Orleans"],
+    "New York Giants": ["NYG", "Giants"],
+    "New York Jets": ["NYJ", "Jets"],
+    "Philadelphia Eagles": ["PHI", "Eagles", "Philadelphia"],
+    "Pittsburgh Steelers": ["PIT", "Steelers", "Pittsburgh"],
+    "San Francisco 49ers": ["SF", "SFO", "49ers", "San Francisco", "Niners"],
+    "Seattle Seahawks": ["SEA", "Seahawks", "Seattle"],
+    "Tampa Bay Buccaneers": ["TB", "TAM", "Buccaneers", "Bucs", "Tampa Bay"],
+    "Tennessee Titans": ["TEN", "Titans", "Tennessee"],
+    "Washington Commanders": ["WAS", "WSH", "Commanders", "Washington",
+                               "Washington Football Team", "Washington Redskins"],
+}
+
 # Premier League. El futbol es el caso feo: cada fuente abrevia distinto.
 EPL_TEAMS: dict[str, list[str]] = {
     "Arsenal": ["Arsenal FC"],
@@ -155,11 +194,18 @@ EPL_TEAMS: dict[str, list[str]] = {
     "Reading": ["Reading FC"],
     "Charlton Athletic": ["Charlton"],
     "Blackpool": ["Blackpool FC"],
+    "Sheffield Wednesday": ["Sheff Wed", "Sheffield Weds"],
+    "Coventry City": ["Coventry"],
+    "Wimbledon": ["Wimbledon FC", "AFC Wimbledon"],
+    "Barnsley": ["Barnsley FC"],
+    "Bradford City": ["Bradford"],
+    "Oldham Athletic": ["Oldham"],
 }
 
 _SPORT_TABLES: dict[Sport, dict[str, list[str]]] = {
     Sport.NBA: NBA_TEAMS,
     Sport.MLB: MLB_TEAMS,
+    Sport.NFL: NFL_TEAMS,
     Sport.SOCCER_EPL: EPL_TEAMS,
 }
 

@@ -53,9 +53,33 @@ class PoissonSoccerModel:
 
     name: str = "soccer_poisson_dc_v1"
     league_avg_goals: float = 1.35   # goles por equipo por partido (tipico top-5)
-    home_advantage: float = 1.30     # multiplicador de lambda del local
-    rho: float = -0.13               # Dixon-Coles; negativo aumenta empates
-    decay: float = 0.0065            # ponderacion exponencial por antiguedad (~1 semivida/107 dias)
+
+    # CALIBRADOS con 8.360 partidos reales de Premier League (engsoccerdata),
+    # seleccion walk-forward en 1995-2009 y validacion en holdout 2010-2017:
+    #
+    #   defaults iniciales (1.30 / -0.13 / 0.0065)  holdout RPS 0.2039, |gap|max 2.29%
+    #   calibrados         (1.44 / -0.28 / 0.0030)  holdout RPS 0.2012, |gap|max 1.87%
+    #
+    # Los dos criterios coinciden, que es la mejor senal de que no es overfitting:
+    # la misma combinacion da el mejor RPS Y la mejor calibracion por clase
+    # (|gap|max de 0.08% en train, practicamente perfecta).
+    home_advantage: float = 1.44     # multiplicador de lambda del local
+
+    rho: float = -0.28
+    """Dixon-Coles; mas negativo aumenta la probabilidad de empate.
+
+    Se escribio -0.13 de memoria (cercano al valor del paper original sobre
+    datos ingleses de los 90). Medido sobre datos reales hace falta MAS DEL
+    DOBLE: con -0.13 el empate quedaba infravalorado 2.2-2.9 puntos
+    porcentuales en todas las configuraciones probadas. A cuota 3.40 eso es
+    exactamente el rango donde el bot creeria ver valor en el empate sin que
+    lo haya."""
+
+    decay: float = 0.0030
+    """Ponderacion exponencial por antiguedad (~1 semivida por 231 dias).
+
+    El 0.0065 inicial (semivida ~107 dias) olvidaba demasiado rapido: con
+    memoria mas larga el RPS mejora de forma consistente en todo el barrido."""
     min_matches: int = 8
     strengths: dict[str, TeamStrength] = field(default_factory=dict)
 

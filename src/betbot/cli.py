@@ -223,7 +223,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         return 2
 
     factory = _model_factory(sport)
-    if factory is None:
+    if factory is None and not sport.value.startswith("soccer"):
         print(f"No hay modelo Elo para {sport.name}.", file=sys.stderr)
         return 2
 
@@ -235,7 +235,13 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         return 1
 
     print(f"{len(rows)} partidos | {rows[0]['date']} -> {rows[-1]['date']}\n")
-    result = walk_forward_elo(rows, factory)
+    if sport.value.startswith("soccer"):
+        # El futbol tiene tres resultados: metricas multiclase (RPS), no binarias.
+        from betbot.backtest.walkforward import walk_forward_soccer
+        from betbot.models.soccer import PoissonSoccerModel
+        result = walk_forward_soccer(rows, PoissonSoccerModel)
+    else:
+        result = walk_forward_elo(rows, factory)
     print(result)
 
     if not result.beats_baseline:
@@ -255,6 +261,9 @@ def _make_source(sport, name: str | None):
     if sport is Sport.SOCCER_EPL:
         from betbot.ingest.sources.soccer_csv import EngSoccerData
         return EngSoccerData()
+    if sport is Sport.NFL:
+        from betbot.ingest.sources.nfl_nflverse import NFLverse
+        return NFLverse()
     return None
 
 
@@ -266,6 +275,9 @@ def _model_factory(sport):
     if sport is Sport.MLB:
         from betbot.models.mlb import MLBModel
         return MLBModel
+    if sport is Sport.NFL:
+        from betbot.models.nfl import NFLModel
+        return NFLModel
     return None
 
 
