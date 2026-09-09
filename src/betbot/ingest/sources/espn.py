@@ -38,6 +38,21 @@ ESPN_PATHS: dict[Sport, str] = {
 }
 
 
+# (mes, dia) de inicio, (mes, dia) de fin, y si la temporada cruza el ano.
+_SEASON_WINDOWS: dict[Sport, tuple[tuple[int, int], tuple[int, int], bool]] = {
+    Sport.NBA: ((10, 1), (6, 30), True),
+    Sport.NFL: ((9, 1), (2, 28), True),
+    Sport.MLB: ((3, 1), (11, 15), False),
+    Sport.SOCCER_EPL: ((8, 1), (5, 31), True),
+    Sport.SOCCER_LA_LIGA: ((8, 1), (5, 31), True),
+    Sport.SOCCER_SERIE_A: ((8, 1), (5, 31), True),
+    Sport.SOCCER_BUNDESLIGA: ((8, 1), (5, 31), True),
+    Sport.SOCCER_LIGUE_1: ((8, 1), (5, 31), True),
+    Sport.SOCCER_LIGA_MX: ((7, 1), (5, 31), True),
+    Sport.SOCCER_UCL: ((9, 1), (5, 31), True),
+}
+
+
 @dataclass
 class ESPNScoreboard:
     sport: Sport
@@ -51,6 +66,32 @@ class ESPNScoreboard:
             raise ValueError(f"deporte no soportado por ESPN: {self.sport}")
         if self.registry is None:
             self.registry = TeamRegistry(self.sport, strict=False)
+
+    def season_window(self, season: int) -> tuple[date, date]:
+        """Rango de fechas de una temporada, por deporte.
+
+        Las temporadas no coinciden con el ano natural y cada deporte tiene su
+        calendario. `season` es el ANO DE INICIO: la 2024 de NBA va de octubre
+        de 2024 a junio de 2025.
+        """
+        start_md, end_md, crosses_year = _SEASON_WINDOWS[self.sport]
+        start = date(season, *start_md)
+        end = date(season + (1 if crosses_year else 0), *end_md)
+        # Nunca pedir fechas futuras: gasta llamadas y no devuelve nada.
+        return start, min(end, date.today())
+
+    def fetch_season(self, season: int) -> list[GameResult]:
+        """Temporada completa, dia a dia.
+
+        OJO AL COSTE: el scoreboard de ESPN devuelve una sola fecha por llamada,
+        asi que una temporada de NBA son ~270 requests. El cache en disco hace
+        que repetirlo salga gratis, pero la primera vez tarda varios minutos.
+        """
+        start, end = self.season_window(season)
+        if start > end:
+            log.warning("temporada %d aun no ha empezado", season)
+            return []
+        return self.fetch_days(start, end)
 
     def fetch_day(self, day: date) -> list[GameResult]:
         url = f"{BASE}/{ESPN_PATHS[self.sport]}/scoreboard?dates={day:%Y%m%d}"

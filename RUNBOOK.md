@@ -107,58 +107,53 @@ Sin esto no hay datos recientes de NBA. El adaptador está escrito y su parseo
 tiene tests, pero nunca ha visto la API real.
 
 ```bash
-python - <<'EOF'
-from datetime import date
-from betbot.ingest.sources.espn import ESPNScoreboard
-from betbot.types import Sport
-
-src = ESPNScoreboard(Sport.NBA)
-games = src.fetch_day(date(2025, 1, 15))     # una fecha con partidos NBA
-print(f"{len(games)} partidos, {len(src.skipped)} descartados")
-for g in games[:3]:
-    print(" ", g.game_date, g.away_team, "@", g.home_team, f"{g.away_score}-{g.home_score}")
-print("sin resolver:", sorted(src.registry.unresolved))
-EOF
+python -m betbot.cli validate-source --sport nba --date 2025-01-15
 ```
 
-**Qué debe salir:** entre 5 y 12 partidos para una fecha normal de temporada
-regular, `0 descartados`, `sin resolver: []` y marcadores plausibles
-(90-130 puntos por equipo).
+Usa una fecha con partidos de temporada regular. **Qué debe salir:**
 
-**Si sale vacío o con errores**, las causas probables por orden:
-- ESPN cambió el formato del JSON → hay que ajustar `_parse_event` en
-  `src/betbot/ingest/sources/espn.py`. Los tests de `tests/test_sources.py`
-  fijan el formato esperado y te dicen qué campo cambió.
-- Nombres de equipo distintos → añádelos a `teams.py`.
-- Fecha sin partidos → prueba otra.
-
-Cuando funcione, baja la temporada completa:
-
-```bash
-python - <<'EOF'
-from datetime import date
-from betbot.ingest.sources.espn import ESPNScoreboard
-from betbot.ingest.store import GameStore
-from betbot.types import Sport
-
-src = ESPNScoreboard(Sport.NBA)
-games = src.fetch_days(date(2024, 10, 1), date.today())
-store = GameStore("data/games.db")
-print("nuevos:", store.upsert_many(games), "| descartados:", len(src.skipped))
-EOF
+```
+  partidos obtenidos : 8
+  descartados        : 0
+  equipos sin alias  : ninguno
+    2025-01-15 Miami Heat @ Boston Celtics 104-112
+    ...
+Fuente validada. Ya puedes bajar temporadas completas:
 ```
 
-Va día a día y el caché en disco hace que reanudarlo sea gratis. Verifica:
+**Si falla**, el comando te dice la causa probable. Por orden:
+
+- `Tunnel connection failed` / `urlopen error` → sin conexión o host bloqueado.
+- `equipos sin alias: [...]` → añádelos a `src/betbot/ingest/teams.py` y repite.
+  Esos partidos **no entran al entrenamiento** hasta que lo hagas.
+- `KeyError` o 0 partidos en una fecha que sí tuvo → ESPN cambió el formato del
+  JSON. Ajusta `_parse_event` en `src/betbot/ingest/sources/espn.py`; los tests
+  de `tests/test_sources.py` fijan el formato esperado y te dicen qué campo se
+  movió.
+- `Sin partidos ese dia` → no es un fallo, prueba otra fecha.
+
+Cuando funcione, baja las temporadas recientes:
 
 ```bash
-python -m betbot.cli doctor      # NBA debe salir "al dia"
+python -m betbot.cli ingest --sport nba --source espn --from 2024 --to 2025
+```
+
+**El `--source espn` es obligatorio.** Sin él se usa el dataset de
+FiveThirtyEight, que termina en 2015.
+
+Esto tarda: el scoreboard de ESPN devuelve una fecha por llamada, así que una
+temporada de NBA son ~270 requests con pausa de 1 segundo (unos 5 minutos). El
+caché en disco hace que repetirlo salga gratis.
+
+Verifica:
+
+```bash
+python -m betbot.cli doctor              # NBA debe salir "al dia"
 python -m betbot.cli backtest --sport nba
 ```
 
 El backtest sobre datos recientes debe seguir batiendo al baseline. Si no lo
 hace, para: algo va mal en la ingesta nueva.
-
----
 
 ## 4. Primer escaneo real
 
@@ -277,6 +272,7 @@ como OBSOLETO cualquier cosa por encima de un año.
 | Síntoma | Causa probable | Solución |
 |---|---|---|
 | `scan` nunca da señales | Nombres de equipo que no casan | `doctor --api` y compara con `teams.py` |
+| Datos de NBA obsoletos tras ingerir | Olvidaste `--source espn` | Sin él se usa el dataset que acaba en 2015 |
 | `No hay datos historicos de X` | Falta ingerir | `betbot ingest --sport X` |
 | EV absurdos (>20%) | Devig roto o nombres mal casados | Revisa que el mercado traiga todas sus patas |
 | `cuota agotada` | Presupuesto mensual consumido | Espacia el escaneo; nunca `close` |

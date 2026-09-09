@@ -38,7 +38,7 @@ python -m betbot.cli demo                              # pipeline, datos sintét
 python -m betbot.cli ingest --sport nba --from 2000 --to 2015
 python -m betbot.cli backtest --sport nba              # walk-forward real
 python -m betbot.cli doctor                            # diagnostico
-pytest -q                                              # 276 tests
+pytest -q                                              # 286 tests
 ```
 
 El núcleo no tiene dependencias: solo stdlib. `pandas`/`requests` quedan en el
@@ -67,7 +67,8 @@ backtest/     Brier, log-loss, calibración, CLV, ROI con error típico
 alerts/       Consola y Telegram
 storage.py    SQLite: señales, odds de cierre, liquidación
 closing.py    Captura de línea de cierre (el job que hace medible el CLV)
-cli.py        doctor / demo / ingest / backtest / scan / close / report
+cli.py        doctor / validate-source / demo / ingest / backtest /
+              scan / close / report
 ```
 
 El motor de EV no sabe nada de baloncesto, béisbol ni fútbol: solo consume

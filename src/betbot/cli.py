@@ -291,8 +291,21 @@ def model_freshness(sport, games_db: str = "data/games.db") -> tuple[int | None,
     return (date.today() - date.fromisoformat(last)).days, last
 
 
-def _make_source(sport, name: str | None):
+def _make_source(sport, name: str | None = None):
+    """Fuente historica del deporte. `name` elige explicitamente cual.
+
+    Por defecto se usa la fuente con MAS HISTORIA de cada deporte, que suele ser
+    un dataset estatico. Pero esos datasets se congelan: el de NBA termina en
+    2015. Para temporadas recientes hay que pedir `--source espn` de forma
+    explicita, y por eso este parametro tiene que respetarse.
+    """
     from betbot.types import Sport
+
+    if name == "espn":
+        from betbot.ingest.sources.espn import ESPN_PATHS, ESPNScoreboard
+        if sport not in ESPN_PATHS:
+            return None
+        return ESPNScoreboard(sport)
 
     if sport is Sport.NBA:
         from betbot.ingest.sources.fivethirtyeight_nba import FiveThirtyEightNBA
@@ -464,6 +477,81 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 1 if problems else 0
 
 
+def cmd_validate_source(args: argparse.Namespace) -> int:
+    """Prueba de humo de una fuente EN VIVO sobre una sola fecha.
+
+    Existe porque dos adaptadores (ESPN y MLB StatsAPI) tienen el parseo cubierto
+    por tests contra payloads fijados, pero nunca se han ejecutado contra la API
+    real: el entorno donde se desarrollaron tiene esos hosts bloqueados. Antes de
+    bajar una temporada entera conviene comprobar una fecha.
+    """
+    from datetime import date, datetime
+
+    sport = SPORT_ALIASES.get(args.sport)
+    if sport is None:
+        print(f"Deporte desconocido: {args.sport}", file=sys.stderr)
+        return 2
+
+    source = _make_source(sport, args.source or "espn")
+    if source is None:
+        print(f"La fuente '{args.source or 'espn'}' no cubre {sport.name}.",
+              file=sys.stderr)
+        return 2
+
+    if args.date:
+        try:
+            day = datetime.strptime(args.date, "%Y-%m-%d").date()
+        except ValueError:
+            print(f"Fecha invalida: {args.date} (usa YYYY-MM-DD)", file=sys.stderr)
+            return 2
+    else:
+        day = date.today()
+
+    print(f"Fuente: {source.name} | deporte: {sport.name} | fecha: {day}\n")
+
+    fetch_day = getattr(source, "fetch_day", None)
+    if fetch_day is None:
+        print("Esta fuente no soporta consulta por dia (es un dataset estatico).",
+              file=sys.stderr)
+        return 2
+
+    try:
+        games = fetch_day(day)
+    except Exception as e:  # noqa: BLE001 - queremos el diagnostico, no el traceback
+        print(f"FALLO la consulta: {type(e).__name__}: {e}\n")
+        print("Causas probables:")
+        print("  - sin conexion o el host esta bloqueado en tu red")
+        print("  - la API cambio de formato -> revisa _parse_event en la fuente")
+        return 1
+
+    skipped = getattr(source, "skipped", [])
+    unresolved = sorted(getattr(getattr(source, "registry", None), "unresolved", set()))
+
+    print(f"  partidos obtenidos : {len(games)}")
+    print(f"  descartados        : {len(skipped)}")
+    print(f"  equipos sin alias  : {unresolved if unresolved else 'ninguno'}")
+
+    for g in games[:5]:
+        print(f"    {g.game_date} {g.away_team} @ {g.home_team} "
+              f"{g.away_score}-{g.home_score}")
+
+    print()
+    if not games and not skipped:
+        print("Sin partidos ese dia. No es un fallo: prueba otra fecha en "
+              "temporada.")
+        return 0
+    if unresolved:
+        print("PROBLEMA: hay equipos sin alias. Esos partidos NO entran al")
+        print("entrenamiento. Anadelos a src/betbot/ingest/teams.py y repite.")
+        return 1
+
+    print("Fuente validada. Ya puedes bajar temporadas completas:")
+    alias = next((k for k, v in SPORT_ALIASES.items() if v is sport), sport.name)
+    print(f"  python -m betbot.cli ingest --sport {alias} --source espn "
+          f"--from {day.year if day.month > 6 else day.year - 1} --to {day.year}")
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     from betbot.backtest.metrics import clv_summary
 
@@ -519,7 +607,9 @@ def main(argv: list[str] | None = None) -> int:
     p_ing.add_argument("--sport", default="nba", help=f"uno de {sorted(SPORT_ALIASES)}")
     p_ing.add_argument("--from", dest="start", type=int, default=2000)
     p_ing.add_argument("--to", dest="end", type=int, default=2015)
-    p_ing.add_argument("--source", default=None)
+    p_ing.add_argument("--source", default=None,
+                       help="'espn' para temporadas recientes; por defecto, el "
+                            "dataset historico de cada deporte")
     p_ing.add_argument("--db", default="data/games.db")
     p_ing.add_argument("--force", action="store_true", help="rehacer temporadas ya ingeridas")
     p_ing.set_defaults(func=cmd_ingest)
@@ -534,6 +624,13 @@ def main(argv: list[str] | None = None) -> int:
                        help="probar tambien la conexion con The Odds API (1 credito)")
     p_doc.add_argument("--games-db", default="data/games.db")
     p_doc.set_defaults(func=cmd_doctor)
+
+    p_val = sub.add_parser("validate-source",
+                           help="prueba de humo de una fuente en vivo (ESPN)")
+    p_val.add_argument("--sport", default="nba", help=f"uno de {sorted(SPORT_ALIASES)}")
+    p_val.add_argument("--date", default=None, help="YYYY-MM-DD (def. hoy)")
+    p_val.add_argument("--source", default="espn")
+    p_val.set_defaults(func=cmd_validate_source)
 
     p_close = sub.add_parser("close", help="captura lineas de cierre (cron cada 10-15 min)")
     p_close.add_argument("--window", type=int, default=30,
