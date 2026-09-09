@@ -93,6 +93,79 @@ def closing_line_value(bet_odds: float, closing_odds: float) -> float:
 
 
 @dataclass
+class CLVSummary:
+    """Resumen de CLV. Es la metrica que hay que mirar los primeros meses."""
+
+    n: int
+    mean_clv: float
+    """CLV medio en puntos de probabilidad implicita."""
+    beat_rate: float
+    """Fraccion de apuestas donde conseguiste mejor precio que el cierre."""
+    stderr: float
+    mean_clv_pct: float
+    """CLV medio expresado como % del precio. Mas comparable entre cuotas
+    distintas que los puntos de probabilidad."""
+
+    @property
+    def significant(self) -> bool:
+        """CLV medio distinguible de cero a dos sigmas."""
+        return self.n > 1 and abs(self.mean_clv) > 2 * self.stderr
+
+    @property
+    def verdict(self) -> str:
+        if not self.significant:
+            return "todavia no concluyente (sigue acumulando)"
+        if self.mean_clv > 0:
+            return "ventaja real sobre el cierre"
+        return "estas perdiendo contra el cierre"
+
+    def __str__(self) -> str:
+        return (
+            f"CLV sobre {self.n} apuestas\n"
+            f"  medio      {self.mean_clv:+.3%} de prob. implicita "
+            f"(+/- {self.stderr:.3%})\n"
+            f"  en precio  {self.mean_clv_pct:+.2%}\n"
+            f"  le ganaste al cierre en {self.beat_rate:.1%} de los casos\n"
+            f"  veredicto: {self.verdict}"
+        )
+
+
+def clv_summary(bets: Sequence[dict]) -> CLVSummary:
+    """`bets`: dicts con decimal_odds y closing_odds (los que no lo tengan se ignoran).
+
+    Se ignoran en silencio los que no tienen cierre porque son senales cuyo job
+    de captura no llego a tiempo; contarlos como CLV 0 sesgaria el resultado
+    hacia "no concluyente".
+    """
+    pairs = [
+        (b["decimal_odds"], b["closing_odds"])
+        for b in bets
+        if b.get("closing_odds") and b.get("decimal_odds")
+    ]
+    if not pairs:
+        return CLVSummary(0, 0.0, 0.0, 0.0, 0.0)
+
+    clvs = [closing_line_value(bet, close) for bet, close in pairs]
+    pcts = [(bet / close) - 1.0 for bet, close in pairs]
+    n = len(clvs)
+    mean = sum(clvs) / n
+
+    if n > 1:
+        var = sum((x - mean) ** 2 for x in clvs) / (n - 1)
+        stderr = math.sqrt(var / n)
+    else:
+        stderr = 0.0
+
+    return CLVSummary(
+        n=n,
+        mean_clv=mean,
+        beat_rate=sum(1 for c in clvs if c > 0) / n,
+        stderr=stderr,
+        mean_clv_pct=sum(pcts) / n,
+    )
+
+
+@dataclass
 class ROISummary:
     n_bets: int
     staked: float

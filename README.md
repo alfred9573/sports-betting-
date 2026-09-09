@@ -25,7 +25,7 @@ pip install -e ".[dev]"
 python -m betbot.cli demo                              # pipeline, datos sintéticos, sin red
 python -m betbot.cli ingest --sport nba --from 2000 --to 2015
 python -m betbot.cli backtest --sport nba              # walk-forward real
-pytest -q                                              # 173 tests
+pytest -q                                              # 207 tests
 ```
 
 El núcleo no tiene dependencias: solo stdlib. `pandas`/`requests` quedan en el
@@ -43,6 +43,7 @@ odds/         Proveedores de cotizaciones + eliminación de vig (multiplicative/
 models/       Un módulo por deporte, todos con la misma interfaz ProbabilityModel
   elo.py        Elo genérico con margen de victoria (base de NBA y MLB)
   nba.py        Elo + encogimiento
+  pitchers.py   Ratings de abridor MLB (medido: aporta ~nada, ver abajo)
   mlb.py        Elo + Pythagorean + ajuste de abridor + techo de probabilidad
   soccer.py     Poisson bivariado con corrección Dixon-Coles
 ev/           Motor de EV, Kelly fraccionado y filtros de riesgo
@@ -50,7 +51,8 @@ backtest/     Brier, log-loss, calibración, CLV, ROI con error típico
   walkforward.py  Validación sin fuga temporal
 alerts/       Consola y Telegram
 storage.py    SQLite: señales, odds de cierre, liquidación
-cli.py        demo / ingest / backtest / scan / report
+closing.py    Captura de línea de cierre (el job que hace medible el CLV)
+cli.py        demo / ingest / backtest / scan / close / report
 ```
 
 El motor de EV no sabe nada de baloncesto, béisbol ni fútbol: solo consume
@@ -97,6 +99,33 @@ porcentuales significa apostar siempre al lado equivocado de la misma moneda.
 Efecto colateral: el encogimiento hacia 50/50 (`shrink=0.90`) resultó ser
 **contraproducente** una vez corregida la ventaja de local. Estaba compensando
 el sesgo del HFA mal puesto, no un defecto real del Elo. Ahora es `1.0`.
+
+### El ajuste por abridor en MLB no funciona (medido)
+
+El abridor es el factor que más mueve una línea de béisbol, así que parecía la
+mejora obvia. Se implementó estimando el rating de cada abridor por Elo con los
+propios game logs de Retrosheet, y se midió con selección en 2010-2020 y holdout
+en 2021-2025:
+
+| | Holdout log-loss |
+|---|---|
+| Sin ajuste de abridor | 0.6773 |
+| Con ajuste de abridor | 0.6769 |
+| **Ganancia** | **+0.0004** |
+
+Es ruido: ~3% de un edge que ya era pequeño (0.0118 total sobre baseline). Y el
+método es frágil — con `k` alto la ganancia se vuelve **negativa** (-0.0060).
+
+Lo curioso es que los ratings sí aprenden algo real: los mejores por ajuste son
+Max Fried, Garrett Crochet, Kershaw y Eovaldi, abridores genuinamente buenos. El
+problema es que el resultado del partido depende del bullpen y del ataque tanto
+como del abridor, así que la señal llega ahogada.
+
+**Conclusión práctica**: para que el abridor aporte hacen falta proyecciones que
+midan al lanzador *directamente* (FIP, xFIP, SIERA), no inferirlo del resultado
+del equipo. `MLBModel.pitcher_elo` acepta cualquier fuente de ajustes — aliméntalo
+con eso y vuelve a medir. No merece la pena refinar más el método por inferencia:
+ya está medido y no llega.
 
 ## Las tres decisiones que sostienen el sistema
 
@@ -168,22 +197,37 @@ descargaron y validaron de verdad.
 Nota: Retrosheet no publica gamelog de 2024 (`GL2024.TXT` no existe; esa
 temporada solo está como event files). Para 2024 hay que usar StatsAPI o ESPN.
 
+## Medir CLV desde el día uno
+
+```bash
+# en cron, cada 10-15 minutos
+*/10 * * * * cd /ruta/sports-betting- && python -m betbot.cli close
+```
+
+`close` captura el precio de cierre de toda señal cuyo partido arranque en los
+próximos 30 minutos. Guarda dos referencias:
+
+- **`closing_odds`** — precio final en el *mismo* libro de la señal. Mide si le
+  ganaste a ese libro.
+- **`closing_fair_prob`** — consenso sin vig al cierre. Es el benchmark honesto:
+  un libro blando puede dejar la línea quieta y hacerte creer que acertaste
+  cuando el mercado real se movió en tu contra.
+
+`report` avisa de cuántas señales se quedaron sin cierre capturado. Si ese número
+crece, el job no corre con frecuencia suficiente y te estás quedando ciego.
+
 ## Lo que falta
 
-1. **Registro automático de odds de cierre** (un job al inicio de cada partido)
-   para que el CLV sea medible. Es lo más urgente: sin CLV los primeros meses
-   no son evaluables.
-2. **Smoke test real de StatsAPI y ESPN** — ver tabla de fuentes.
-3. **Ajuste por abridor en MLB**: el campo está implementado y Retrosheet ya
-   entrega los abridores de cada partido, pero falta alimentar `pitcher_elo`
-   con proyecciones tipo FIP/SIERA.
-4. **MLE Dixon-Coles** en fútbol: `fit()` usa estimador de momentos, suficiente
+1. **Smoke test real de StatsAPI y ESPN** — ver tabla de fuentes.
+2. **Proyecciones FIP/SIERA** para alimentar `pitcher_elo` (ver sección del
+   abridor: el camino por inferencia ya está medido y descartado).
+3. **MLE Dixon-Coles** en fútbol: `fit()` usa estimador de momentos, suficiente
    para validar el pipeline, insuficiente para producción. Y usar xG en vez de
    goles, que predice mejor.
-5. **Validación del modelo de fútbol**: los datos están ingiriéndose pero aún no
-   se ha corrido un walk-forward de 1X2 (necesita métricas multiclase, no las
-   binarias actuales).
-6. **NFL**: deliberadamente al final. 17 partidos por temporada es demasiado poco
+4. **Validación del modelo de fútbol**: los datos se ingieren pero aún no se ha
+   corrido un walk-forward de 1X2 (necesita métricas multiclase, no las binarias
+   actuales).
+5. **NFL**: deliberadamente al final. 17 partidos por temporada es demasiado poco
    para separar señal de ruido, y lo medido en MLB refuerza la duda.
 
 ## Advertencia

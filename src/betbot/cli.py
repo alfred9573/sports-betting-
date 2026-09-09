@@ -4,6 +4,7 @@
   python -m betbot.cli ingest --sport nba --from 2000 --to 2015
   python -m betbot.cli backtest --sport nba --holdout 2011
   python -m betbot.cli scan --sport nba
+  python -m betbot.cli close                         # cron cada 10-15 min
   python -m betbot.cli report
 """
 
@@ -268,31 +269,64 @@ def _model_factory(sport):
     return None
 
 
+def cmd_close(args: argparse.Namespace) -> int:
+    """Captura la linea de cierre de las senales que estan por comenzar.
+
+    Pensado para cron cada 10-15 minutos:
+        */10 * * * * cd /ruta && python -m betbot.cli close
+    """
+    from betbot.closing import ClosingCapture
+    from betbot.odds.the_odds_api import TheOddsAPI
+
+    settings = Settings.from_env()
+    if not settings.odds_api_key:
+        print("Falta ODDS_API_KEY.", file=sys.stderr)
+        return 2
+
+    store = SignalStore(settings.db_path)
+    provider = TheOddsAPI(settings.odds_api_key, regions=settings.regions)
+    capture = ClosingCapture(store, provider, EVEngine(settings.ev_config()),
+                             window_minutes=args.window)
+    report = capture.run()
+    print(report)
+    if provider.credits_remaining is not None:
+        print(f"\nCuota restante en The Odds API: {provider.credits_remaining}")
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
+    from betbot.backtest.metrics import clv_summary
+
     settings = Settings.from_env()
     store = SignalStore(settings.db_path)
     settled = store.settled_signals()
     open_ = store.open_signals()
+    missed = store.missed_close()
 
     print(f"Senales abiertas: {len(open_)}")
-    if not settled:
-        print("Todavia no hay senales liquidadas.")
-        return 0
-    print(roi_summary(settled))
 
-    clvs = [
-        (1 / s["closing_odds"]) - (1 / s["decimal_odds"])
-        for s in settled
-        if s.get("closing_odds")
-    ]
-    if clvs:
-        avg = sum(clvs) / len(clvs)
-        beat = sum(1 for c in clvs if c > 0) / len(clvs)
-        print(f"\nCLV medio {avg:+.3%} sobre {len(clvs)} apuestas "
-              f"| le ganaste al cierre en {beat:.1%}")
-        print("CLV medio positivo y estable > cualquier ROI de muestra corta.")
+    # El CLV se puede evaluar en TODAS las senales con cierre, esten liquidadas
+    # o no: no hace falta esperar al resultado del partido. Esa es justamente su
+    # ventaja practica sobre el ROI.
+    with_close = [s for s in (settled + open_) if s.get("closing_odds")]
+    if with_close:
+        print()
+        print(clv_summary(with_close))
     else:
         print("\nSin odds de cierre registradas: no se puede evaluar CLV.")
+        print("Programa `betbot close` en cron cada 10-15 minutos.")
+
+    if missed:
+        print(f"\n{len(missed)} senales se quedaron sin cierre capturado "
+              f"(no evaluables por CLV).")
+
+    if not settled:
+        print("\nTodavia no hay senales liquidadas: sin ROI aun.")
+        return 0
+
+    print()
+    print(roi_summary(settled))
+    print("\nRecuerda: con muestras cortas el CLV manda sobre el ROI.")
     return 0
 
 
@@ -322,6 +356,11 @@ def main(argv: list[str] | None = None) -> int:
     p_bt.add_argument("--sport", default="nba", help=f"uno de {sorted(SPORT_ALIASES)}")
     p_bt.add_argument("--db", default="data/games.db")
     p_bt.set_defaults(func=cmd_backtest)
+
+    p_close = sub.add_parser("close", help="captura lineas de cierre (cron cada 10-15 min)")
+    p_close.add_argument("--window", type=int, default=30,
+                         help="minutos antes del inicio a capturar (def. 30)")
+    p_close.set_defaults(func=cmd_close)
 
     p_report = sub.add_parser("report", help="ROI y CLV de las senales guardadas")
     p_report.set_defaults(func=cmd_report)

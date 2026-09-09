@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from betbot.types import Signal
@@ -37,13 +37,25 @@ CREATE TABLE IF NOT EXISTS signals (
     model_name      TEXT NOT NULL,
     created_at      TEXT NOT NULL,
     closing_odds    REAL,
+    closing_fair_prob REAL,
+    closed_at       TEXT,
     result          TEXT,
     pnl             REAL,
     UNIQUE (event_id, market, selection, bookmaker, created_at)
 );
 CREATE INDEX IF NOT EXISTS idx_signals_event ON signals (event_id);
 CREATE INDEX IF NOT EXISTS idx_signals_created ON signals (created_at);
+CREATE INDEX IF NOT EXISTS idx_signals_commence ON signals (commence_time);
 """
+
+# Columnas anadidas despues de la v1. SQLite no tiene "ADD COLUMN IF NOT EXISTS",
+# asi que se comprueba el pragma: una BD creada con la version vieja se migra en
+# sitio en vez de obligar a borrar el historial de senales, que es justo lo que
+# no se puede perder.
+MIGRATIONS = [
+    ("closing_fair_prob", "ALTER TABLE signals ADD COLUMN closing_fair_prob REAL"),
+    ("closed_at", "ALTER TABLE signals ADD COLUMN closed_at TEXT"),
+]
 
 
 class SignalStore:
@@ -52,6 +64,14 @@ class SignalStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as c:
             c.executescript(SCHEMA)
+            self._migrate(c)
+
+    @staticmethod
+    def _migrate(conn) -> None:
+        existing = {r[1] for r in conn.execute("PRAGMA table_info(signals)")}
+        for column, ddl in MIGRATIONS:
+            if column not in existing:
+                conn.execute(ddl)
 
     @contextmanager
     def _conn(self):
@@ -99,14 +119,61 @@ class SignalStore:
             ).fetchone()
             return row is not None
 
-    def record_closing_odds(self, event_id: str, selection: str, closing: float) -> int:
+    def record_closing_odds(
+        self,
+        event_id: str,
+        selection: str,
+        closing: float,
+        fair_prob: float | None = None,
+    ) -> int:
+        """Registra el precio de cierre de una seleccion.
+
+        No pisa un cierre ya registrado: el primero que se captura es el bueno.
+        Si el job se corre dos veces, la segunda no degrada el dato con un
+        precio tomado despues del salto inicial.
+        """
         with self._conn() as c:
             cur = c.execute(
-                "UPDATE signals SET closing_odds=? "
+                "UPDATE signals SET closing_odds=?, closing_fair_prob=?, "
+                "closed_at=datetime('now') "
                 "WHERE event_id=? AND selection=? AND closing_odds IS NULL",
-                (closing, event_id, selection),
+                (closing, fair_prob, event_id, selection),
             )
             return cur.rowcount
+
+    def pending_close(self, within_minutes: int = 30) -> list[dict]:
+        """Senales cuyo partido empieza pronto y aun no tienen cierre registrado.
+
+        Es la cola de trabajo del job de captura: hay que tomar el precio LO MAS
+        CERCA POSIBLE del inicio, porque el cierre es la linea mas eficiente que
+        publica el mercado y es contra esa que se mide si tu precio era bueno.
+        """
+        now = datetime.now(UTC)
+        horizon = now + timedelta(minutes=within_minutes)
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT * FROM signals WHERE closing_odds IS NULL "
+                "AND commence_time > ? AND commence_time <= ? "
+                "ORDER BY commence_time",
+                (now.isoformat(), horizon.isoformat()),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def missed_close(self) -> list[dict]:
+        """Senales cuyo partido YA empezo sin que se capturara el cierre.
+
+        Cada fila aqui es una apuesta que nunca podra evaluarse por CLV. Si esta
+        lista crece, el job de captura no esta corriendo con la frecuencia
+        suficiente y te estas quedando ciego sin enterarte.
+        """
+        now = datetime.now(UTC).isoformat()
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT * FROM signals WHERE closing_odds IS NULL AND commence_time <= ? "
+                "ORDER BY commence_time DESC",
+                (now,),
+            ).fetchall()
+            return [dict(r) for r in rows]
 
     def settle(self, event_id: str, winning_selection: str) -> int:
         """Liquida todas las senales de un evento segun el ganador."""
