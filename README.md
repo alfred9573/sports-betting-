@@ -8,10 +8,12 @@ ya descontado el margen. Emite **señales**; las apuestas se ponen a mano.
 
 ## Estado
 
-Pipeline completo y probado extremo a extremo (`odds → modelo → EV → alerta`),
-con modelos NBA, MLB y fútbol implementados. **Ningún modelo está entrenado con
-datos reales todavía** — falta la capa de ingesta histórica. Hasta entonces
-`predict()` devuelve `None` por diseño: no se apuesta con un modelo sin entrenar.
+Pipeline completo (`odds → modelo → EV → alerta`) más capa de ingesta histórica
+y backtest walk-forward. **Los modelos NBA y MLB están entrenados y validados
+con datos reales**: 20.536 partidos de NBA y 34.914 de MLB.
+
+Lo que falta para operar: registrar odds de cierre en vivo y validar con dinero
+de papel. Ver *Lo que falta* al final.
 
 ## Arranque rápido
 
@@ -20,8 +22,10 @@ git clone <repo> && cd sports-betting-
 cp .env.example .env          # rellena ODDS_API_KEY si vas a escanear en vivo
 pip install -e ".[dev]"
 
-python -m betbot.cli demo     # pipeline completo, datos sintéticos, sin red
-pytest -q                     # 92 tests
+python -m betbot.cli demo                              # pipeline, datos sintéticos, sin red
+python -m betbot.cli ingest --sport nba --from 2000 --to 2015
+python -m betbot.cli backtest --sport nba              # walk-forward real
+pytest -q                                              # 173 tests
 ```
 
 El núcleo no tiene dependencias: solo stdlib. `pandas`/`requests` quedan en el
@@ -30,6 +34,11 @@ extra `data`, para la ingesta histórica.
 ## Arquitectura
 
 ```
+ingest/       Descarga y normalización de resultados históricos
+  teams.py      Registro canónico de equipos + alias (la pieza más crítica)
+  store.py      SQLite idempotente, reanudable y cronológicamente ordenado
+  http.py       Fetcher con caché en disco, rate limit y reintentos
+  sources/      Retrosheet (MLB), 538 (NBA), engsoccerdata, ESPN, MLB StatsAPI
 odds/         Proveedores de cotizaciones + eliminación de vig (multiplicative/power/shin)
 models/       Un módulo por deporte, todos con la misma interfaz ProbabilityModel
   elo.py        Elo genérico con margen de victoria (base de NBA y MLB)
@@ -38,13 +47,56 @@ models/       Un módulo por deporte, todos con la misma interfaz ProbabilityMod
   soccer.py     Poisson bivariado con corrección Dixon-Coles
 ev/           Motor de EV, Kelly fraccionado y filtros de riesgo
 backtest/     Brier, log-loss, calibración, CLV, ROI con error típico
+  walkforward.py  Validación sin fuga temporal
 alerts/       Consola y Telegram
 storage.py    SQLite: señales, odds de cierre, liquidación
-cli.py        demo / scan / report
+cli.py        demo / ingest / backtest / scan / report
 ```
 
 El motor de EV no sabe nada de baloncesto, béisbol ni fútbol: solo consume
 `ModelProbabilities`. Añadir un deporte es escribir un módulo nuevo en `models/`.
+
+## Resultados medidos
+
+Walk-forward estricto (el modelo solo ve partidos anteriores al que predice).
+Baseline = predecir siempre la tasa base de victoria local.
+
+| Deporte | Partidos | Log-loss modelo | Baseline | **Mejora** | Acierto |
+|---|---|---|---|---|---|
+| **NBA** | 20.536 (2000-2015) | 0.5979 | 0.6757 | **0.0778** | 67.2% |
+| **MLB** | 34.914 (2010-2025) | 0.6788 | 0.6903 | **0.0116** | 56.7% |
+
+**El edge del modelo en NBA es ~6,7× el de MLB**, y eso cambia el plan de
+arranque. La intuición era empezar por MLB por volumen (2430 partidos/temporada
+frente a 1230); la medición dice que el béisbol tiene mucha más data pero
+muchísima menos señal por partido. En el barrido de MLB, 27 combinaciones de
+parámetros caben en un rango de log-loss de 0,0016: el modelo es casi insensible
+a su propia configuración porque apenas hay nada que extraer.
+
+**Empieza por NBA.**
+
+### Lo que encontró la tabla de calibración
+
+Los agregados no lo habrían detectado. Con los parámetros iniciales (escritos de
+memoria: `k=20`, ventaja de local 60 puntos de Elo), el log-loss salía razonable
+—0,6028— pero **los diez deciles de calibración tenían gap negativo**: el modelo
+infravaloraba al local en todo el rango, de forma sistemática.
+
+Calibrado contra datos reales (selección en 2000-2010, validación en el holdout
+2011-2015, nunca visto durante la selección):
+
+| Configuración | Holdout log-loss | Gap medio |
+|---|---|---|
+| Inicial (k=20, HFA=60) | 0.6028 | **-3.16%** |
+| Calibrada (k=10, HFA=85) | 0.5979 | **+0.89%** |
+
+La ventaja de local en la NBA vale ~85 puntos de Elo, no 60. La mejora de
+log-loss es modesta; la de calibración no: un sesgo sistemático de 3 puntos
+porcentuales significa apostar siempre al lado equivocado de la misma moneda.
+
+Efecto colateral: el encogimiento hacia 50/50 (`shrink=0.90`) resultó ser
+**contraproducente** una vez corregida la ventaja de local. Estaba compensando
+el sesgo del HFA mal puesto, no un defecto real del Elo. Ahora es `1.0`.
 
 ## Las tres decisiones que sostienen el sistema
 
@@ -97,26 +149,42 @@ son 9 créditos por llamada: a 3 deportes cada 30 minutos, el mes se agota en d�
 y medio. El cliente usa un mercado y una región por defecto, y expone
 `credits_remaining` en cada respuesta.
 
+## Fuentes de datos
+
+| Fuente | Deporte | Cobertura | Estado |
+|---|---|---|---|
+| Retrosheet (espejo Chadwick) | MLB | 1871-2025 | ✅ validada, 0 descartes |
+| FiveThirtyEight Elo | NBA | 1946-2015 | ✅ validada, 0 descartes |
+| engsoccerdata | Fútbol inglés | 1888-2016 | ✅ parseo validado |
+| MLB StatsAPI | MLB | actual + histórico | ⚠️ sin probar en vivo |
+| ESPN scoreboard | NBA/NFL/MLB/fútbol | temporadas recientes | ⚠️ sin probar en vivo |
+
+Las dos marcadas ⚠️ tienen el parseo cubierto por tests contra payloads fijados,
+pero **no se han podido ejecutar contra la API real**: el entorno donde se
+desarrollaron tiene bloqueado el tráfico saliente a esos hosts. Hacen falta unas
+corridas reales antes de fiarse de ellas. Los datasets estáticos de GitHub sí se
+descargaron y validaron de verdad.
+
+Nota: Retrosheet no publica gamelog de 2024 (`GL2024.TXT` no existe; esa
+temporada solo está como event files). Para 2024 hay que usar StatsAPI o ESPN.
+
 ## Lo que falta
 
-1. **Ingesta histórica** (bloqueante para todo lo demás): sin esto no hay
-   entrenamiento ni backtest. NBA/MLB vía `nba_api` y Retrosheet/pybaseball;
-   fútbol vía FBref/Understat para xG.
-2. **Backtest walk-forward** con las métricas ya implementadas — entrenar solo con
-   datos anteriores a cada partido, nunca con la temporada completa.
-3. **Registro automático de odds de cierre** (un job que corra al inicio de cada
-   partido) para que el CLV sea medible.
+1. **Registro automático de odds de cierre** (un job al inicio de cada partido)
+   para que el CLV sea medible. Es lo más urgente: sin CLV los primeros meses
+   no son evaluables.
+2. **Smoke test real de StatsAPI y ESPN** — ver tabla de fuentes.
+3. **Ajuste por abridor en MLB**: el campo está implementado y Retrosheet ya
+   entrega los abridores de cada partido, pero falta alimentar `pitcher_elo`
+   con proyecciones tipo FIP/SIERA.
 4. **MLE Dixon-Coles** en fútbol: `fit()` usa estimador de momentos, suficiente
-   para validar el pipeline, insuficiente para producción.
-5. **NFL**: deliberadamente al final. 17 partidos por temporada es demasiado poco
-   para separar señal de ruido con estos métodos.
-
-## Orden recomendado
-
-NBA o MLB primero: mucha data, sin empates, modelos probados. MLB da el mejor
-banco de pruebas por volumen (2430 partidos/temporada) a costa de que el abridor
-domina la línea. Fútbol después, que añade el empate y baja anotación. NFL al
-final, si acaso.
+   para validar el pipeline, insuficiente para producción. Y usar xG en vez de
+   goles, que predice mejor.
+5. **Validación del modelo de fútbol**: los datos están ingiriéndose pero aún no
+   se ha corrido un walk-forward de 1X2 (necesita métricas multiclase, no las
+   binarias actuales).
+6. **NFL**: deliberadamente al final. 17 partidos por temporada es demasiado poco
+   para separar señal de ruido, y lo medido en MLB refuerza la duda.
 
 ## Advertencia
 

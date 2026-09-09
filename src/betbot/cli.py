@@ -1,6 +1,8 @@
 """CLI del bot.
 
-  python -m betbot.cli demo            # pipeline completo con datos sinteticos
+  python -m betbot.cli demo                          # pipeline con datos sinteticos
+  python -m betbot.cli ingest --sport nba --from 2000 --to 2015
+  python -m betbot.cli backtest --sport nba --holdout 2011
   python -m betbot.cli scan --sport nba
   python -m betbot.cli report
 """
@@ -158,6 +160,114 @@ def cmd_scan(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ingest(args: argparse.Namespace) -> int:
+    """Descarga resultados historicos y los guarda normalizados."""
+    from betbot.ingest.store import GameStore
+
+    sport = SPORT_ALIASES.get(args.sport)
+    if sport is None:
+        print(f"Deporte desconocido: {args.sport}", file=sys.stderr)
+        return 2
+
+    source = _make_source(sport, args.source)
+    if source is None:
+        print(f"No hay fuente historica para {sport.name}.", file=sys.stderr)
+        return 2
+
+    store = GameStore(args.db)
+    total_new = 0
+    print(f"Fuente: {source.name} | temporadas {args.start}-{args.end}")
+
+    for season in range(args.start, args.end + 1):
+        if not args.force and store.season_is_done(sport, source.name, season):
+            print(f"  {season}: ya ingerida (usa --force para rehacerla)")
+            continue
+        try:
+            games = source.fetch_season(season)
+        except Exception as e:  # noqa: BLE001
+            print(f"  {season}: ERROR {e}", file=sys.stderr)
+            continue
+        new = store.upsert_many(games)
+        store.mark_season_done(sport, source.name, season, len(games))
+        total_new += new
+        skipped = len(getattr(source, "skipped", []))
+        note = f" | {skipped} descartados" if skipped else ""
+        print(f"  {season}: {len(games)} partidos, {new} nuevos{note}")
+
+    print(f"\nTotal nuevo: {total_new} | en BD: {store.count(sport)} partidos de {sport.name}")
+
+    # El aviso se basa en partidos REALMENTE descartados, no en fallos de lookup:
+    # una fuente puede intentar varios campos y resolver por el segundo. Avisar
+    # por cada intento fallido genera alarmas falsas que se acaban ignorando, que
+    # es justo como se cuela despues una perdida de datos de verdad.
+    dropped = getattr(source, "skipped", [])
+    if dropped:
+        muestra = sorted(dict.fromkeys(dropped))[:10]
+        print(
+            f"\nAVISO: {len(dropped)} partidos DESCARTADOS por equipo no reconocido.\n"
+            f"  {muestra}\n"
+            "  Anadelos a ingest/teams.py: hasta entonces no entran al entrenamiento."
+        )
+    return 0
+
+
+def cmd_backtest(args: argparse.Namespace) -> int:
+    """Walk-forward sobre los datos ya ingeridos. Sin fuga temporal."""
+    from betbot.backtest.walkforward import walk_forward_elo
+    from betbot.ingest.store import GameStore
+
+    sport = SPORT_ALIASES.get(args.sport)
+    if sport is None:
+        print(f"Deporte desconocido: {args.sport}", file=sys.stderr)
+        return 2
+
+    factory = _model_factory(sport)
+    if factory is None:
+        print(f"No hay modelo Elo para {sport.name}.", file=sys.stderr)
+        return 2
+
+    store = GameStore(args.db)
+    rows = store.training_rows(sport)
+    if not rows:
+        print(f"No hay datos de {sport.name}. Corre primero: "
+              f"betbot ingest --sport {args.sport}", file=sys.stderr)
+        return 1
+
+    print(f"{len(rows)} partidos | {rows[0]['date']} -> {rows[-1]['date']}\n")
+    result = walk_forward_elo(rows, factory)
+    print(result)
+
+    if not result.beats_baseline:
+        print("\nEl modelo NO le gana a predecir la tasa base. No lo uses para apostar.")
+    return 0
+
+
+def _make_source(sport, name: str | None):
+    from betbot.types import Sport
+
+    if sport is Sport.NBA:
+        from betbot.ingest.sources.fivethirtyeight_nba import FiveThirtyEightNBA
+        return FiveThirtyEightNBA()
+    if sport is Sport.MLB:
+        from betbot.ingest.sources.retrosheet import Retrosheet
+        return Retrosheet()
+    if sport is Sport.SOCCER_EPL:
+        from betbot.ingest.sources.soccer_csv import EngSoccerData
+        return EngSoccerData()
+    return None
+
+
+def _model_factory(sport):
+    from betbot.types import Sport
+
+    if sport is Sport.NBA:
+        return NBAModel
+    if sport is Sport.MLB:
+        from betbot.models.mlb import MLBModel
+        return MLBModel
+    return None
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     settings = Settings.from_env()
     store = SignalStore(settings.db_path)
@@ -198,6 +308,20 @@ def main(argv: list[str] | None = None) -> int:
     p_scan = sub.add_parser("scan", help="escaneo real (consume cuota de la API)")
     p_scan.add_argument("--sport", default="nba", help=f"uno de {sorted(SPORT_ALIASES)}")
     p_scan.set_defaults(func=cmd_scan)
+
+    p_ing = sub.add_parser("ingest", help="descarga resultados historicos")
+    p_ing.add_argument("--sport", default="nba", help=f"uno de {sorted(SPORT_ALIASES)}")
+    p_ing.add_argument("--from", dest="start", type=int, default=2000)
+    p_ing.add_argument("--to", dest="end", type=int, default=2015)
+    p_ing.add_argument("--source", default=None)
+    p_ing.add_argument("--db", default="data/games.db")
+    p_ing.add_argument("--force", action="store_true", help="rehacer temporadas ya ingeridas")
+    p_ing.set_defaults(func=cmd_ingest)
+
+    p_bt = sub.add_parser("backtest", help="walk-forward sobre los datos ingeridos")
+    p_bt.add_argument("--sport", default="nba", help=f"uno de {sorted(SPORT_ALIASES)}")
+    p_bt.add_argument("--db", default="data/games.db")
+    p_bt.set_defaults(func=cmd_backtest)
 
     p_report = sub.add_parser("report", help="ROI y CLV de las senales guardadas")
     p_report.set_defaults(func=cmd_report)

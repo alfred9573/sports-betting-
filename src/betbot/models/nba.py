@@ -13,12 +13,22 @@ from dataclasses import dataclass, field
 from betbot.models.elo import EloConfig, EloRatings
 from betbot.types import Event, Market, ModelProbabilities
 
-# K bajo: 82 partidos dan mucha senal, no hace falta reaccionar fuerte a cada uno.
-# HFA ~2.5 puntos de spread; la ventaja de local en NBA cayo de ~3.5 a ~2.5 pts
-# en la ultima decada, y 60 pts de Elo (~1.5-2 pts) es el rango post-2020.
+# CALIBRADO CON DATOS REALES, no de memoria. Procedimiento: barrido de
+# parametros sobre 2000-2010 (14.213 partidos, dataset Elo de FiveThirtyEight),
+# seleccion por log-loss walk-forward, y validacion en el holdout 2011-2015
+# (5.543 partidos nunca vistos en la seleccion).
+#
+#   defaults iniciales (k=20, hfa=60):  holdout log-loss 0.6028, gap medio -3.16%
+#   calibrados (k=10, hfa=85):          holdout log-loss 0.5979, gap medio +0.89%
+#
+# Lo relevante no es el log-loss (mejora modesta) sino el GAP: con hfa=60 los
+# diez deciles de calibracion tenian sesgo negativo, o sea el modelo infravaloraba
+# al local en todo el rango. Un sesgo sistematico asi no se ve en las metricas
+# agregadas y se traduce en apostar siempre al lado equivocado de la misma
+# moneda. La ventaja de local en NBA vale ~85 puntos de Elo, no 60.
 NBA_ELO = EloConfig(
-    k=20.0,
-    home_advantage=60.0,
+    k=10.0,
+    home_advantage=85.0,
     initial_rating=1500.0,
     mov_multiplier=True,
     regression_to_mean=0.25,
@@ -32,10 +42,14 @@ class NBAModel:
 
     name: str = "nba_elo_v1"
     ratings: EloRatings = field(default_factory=lambda: EloRatings(NBA_ELO))
-    shrink: float = 0.90
-    """Encogimiento hacia 50/50. Un Elo crudo esta sistematicamente
-    sobreconfiado en los extremos; sin esto se generan senales fantasma en
-    favoritos de -400 que el mercado ya tiene bien valorados."""
+    shrink: float = 1.0
+    """Encogimiento hacia 50/50 (1.0 = desactivado).
+
+    Se puso a 0.90 asumiendo que un Elo crudo esta sobreconfiado en los extremos.
+    Los datos dicen que no: con la ventaja de local bien calibrada (85 pts), el
+    encogimiento empeora el holdout — estaba compensando el sesgo de hfa=60, no
+    un defecto real del Elo. Se conserva el parametro porque un modelo entrenado
+    con menos historia si puede necesitarlo."""
 
     def fit(self, games: list[dict]) -> NBAModel:
         """Entrena en orden cronologico.

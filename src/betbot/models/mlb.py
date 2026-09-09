@@ -8,6 +8,20 @@ La contra: el abridor mueve la linea mas que cualquier otro factor individual
 —entre 20 y 40 puntos de probabilidad de victoria entre un as y un quinto
 abridor— asi que un Elo puro de equipo esta estructuralmente incompleto. Aqui
 se modela como un ajuste explicito en puntos de Elo, no como una constante.
+
+MEDICION REAL (34.914 partidos, Retrosheet 2010-2025, walk-forward):
+
+    log-loss del modelo      0.6788
+    log-loss del baseline    0.6903   (predecir siempre la tasa base de local)
+    mejora                   0.0116
+
+Para comparar, el mismo procedimiento sobre NBA da una mejora de 0.0778 —
+casi SIETE VECES mas. El beisbol tiene mas datos pero muchisima menos senal por
+partido, y el volumen no compensa esa diferencia: la ventaja del modelo sobre
+"predecir la tasa base" es tan pequena que sobrevive con dificultad al margen
+del libro. Este modulo esta completo y validado, pero la conclusion empirica es
+que MLB NO es el mejor punto de partida para buscar EV, pese a ser el que mas
+partidos ofrece.
 """
 
 from __future__ import annotations
@@ -17,11 +31,15 @@ from dataclasses import dataclass, field
 from betbot.models.elo import EloConfig, EloRatings
 from betbot.types import Event, Market, ModelProbabilities
 
-# K muy bajo: 162 partidos y altisima varianza por partido. Reaccionar fuerte a
-# resultados individuales en beisbol es ajustar a ruido.
+# CALIBRADO sobre 34.914 partidos reales de Retrosheet (2010-2025), barrido
+# walk-forward. El resultado mas informativo del barrido no es el optimo sino su
+# PLANITUD: 27 combinaciones de k/hfa/pythag_weight caben en un rango de log-loss
+# de 0.0016 (0.6788-0.6804). El modelo es casi insensible a sus parametros porque
+# apenas hay senal que extraer — ver la nota sobre el edge real en la docstring
+# de arriba.
 MLB_ELO = EloConfig(
     k=4.0,
-    home_advantage=24.0,   # ventaja de local en MLB ~54%, la mas baja de las 4 ligas
+    home_advantage=30.0,   # ventaja de local MLB medida: 53.7%, la mas baja de las 4 ligas
     initial_rating=1500.0,
     mov_multiplier=False,  # el margen de carreras dice poco del talento real
     regression_to_mean=0.30,
@@ -49,6 +67,9 @@ class MLBModel:
     ratings: EloRatings = field(default_factory=lambda: EloRatings(MLB_ELO))
     runs: dict[str, tuple[int, int]] = field(default_factory=dict)  # team -> (RS, RA)
     pythag_weight: float = 0.35
+    """Peso del componente Pythagorean. 0.35 es el optimo medido; aporta 0.0008
+    de log-loss sobre Elo puro (pw=0.0). Real pero marginal."""
+
     shrink: float = 0.92
     prob_cap: float = 0.70
     """Techo duro de probabilidad. El beisbol es el deporte de liga mas aleatorio
