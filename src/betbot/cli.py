@@ -1,5 +1,6 @@
 """CLI del bot.
 
+  python -m betbot.cli doctor                        # diagnostico antes de operar
   python -m betbot.cli demo                          # pipeline con datos sinteticos
   python -m betbot.cli ingest --sport nba --from 2000 --to 2015
   python -m betbot.cli backtest --sport nba --holdout 2011
@@ -130,13 +131,9 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
     print(f"{len(events)} eventos obtenidos. Cuota restante: {provider.credits_remaining}")
 
-    # NOTA: aqui falta cargar un modelo ENTRENADO con resultados historicos reales.
-    # Sin `fit()` sobre datos reales, predict() devuelve None por el filtro
-    # min_games y el escaneo no produce senales — que es el comportamiento
-    # correcto y deliberado: no se apuesta con un modelo sin entrenar.
-    model = NBAModel() if sport is Sport.NBA else None
+    model, err = load_trained_model(sport, args.games_db)
     if model is None:
-        print(f"Todavia no hay modelo cableado para {sport.name}.", file=sys.stderr)
+        print(err, file=sys.stderr)
         return 2
 
     engine = EVEngine(settings.ev_config())
@@ -249,6 +246,52 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     return 0
 
 
+def load_trained_model(sport, games_db: str = "data/games.db"):
+    """Carga el modelo del deporte ENTRENADO con los resultados ya ingeridos.
+
+    Devuelve (modelo, None) o (None, mensaje_de_error). Nunca devuelve un modelo
+    sin entrenar: apostar con ratings a 1500 para todos es peor que no apostar.
+    """
+    from betbot.ingest.store import GameStore
+    from betbot.types import Sport
+
+    store = GameStore(games_db)
+    rows = store.training_rows(sport)
+    if not rows:
+        alias = next((k for k, v in SPORT_ALIASES.items() if v is sport), sport.name)
+        return None, (
+            f"No hay datos historicos de {sport.name} en {games_db}.\n"
+            f"Corre primero:  python -m betbot.cli ingest --sport {alias}"
+        )
+
+    if sport.value.startswith("soccer"):
+        from betbot.models.soccer import PoissonSoccerModel
+        model = PoissonSoccerModel.for_league(sport)
+    else:
+        factory = _model_factory(sport)
+        if factory is None:
+            return None, f"No hay modelo implementado para {sport.name}."
+        model = factory()
+
+    model.fit(rows)
+    return model, None
+
+
+def model_freshness(sport, games_db: str = "data/games.db") -> tuple[int | None, str | None]:
+    """Dias desde el ultimo partido ingerido. Es el chequeo que evita el fallo
+    mas silencioso de todos: escanear partidos de hoy con ratings de hace anos.
+    """
+    from datetime import date
+
+    from betbot.ingest.store import GameStore
+
+    rows = GameStore(games_db).iter_games(sport)
+    if not rows:
+        return None, None
+    last = rows[-1]["game_date"]
+    return (date.today() - date.fromisoformat(last)).days, last
+
+
 def _make_source(sport, name: str | None):
     from betbot.types import Sport
 
@@ -309,6 +352,119 @@ def cmd_close(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """Diagnostico completo antes de operar. No consume cuota salvo con --api.
+
+    Comprueba, en este orden: configuracion, datos historicos, FRESCURA de esos
+    datos, y conectividad real con The Odds API. La frescura es la que importa
+    mas y la que nadie mira: un modelo entrenado con datos que terminan hace
+    anos escanea partidos de hoy con ratings obsoletos y no da ningun error.
+    """
+    from betbot.types import Sport
+
+    settings = Settings.from_env()
+    problems: list[str] = []
+    warnings: list[str] = []
+
+    print("=== CONFIGURACION ===")
+    print(f"  ODDS_API_KEY      {'definida' if settings.odds_api_key else 'FALTA'}")
+    print(f"  Telegram          {'activo' if settings.telegram_enabled else 'no configurado'}")
+    print(f"  bankroll          {settings.bankroll:.2f}")
+    print(f"  min_ev            {settings.min_ev:.1%}")
+    print(f"  kelly_fraction    {settings.kelly_fraction:.2f}")
+    print(f"  max_stake_pct     {settings.max_stake_pct:.1%}")
+    if not settings.odds_api_key:
+        problems.append("Falta ODDS_API_KEY: copia .env.example a .env y rellenala.")
+
+    print("\n=== DATOS HISTORICOS Y MODELOS ===")
+    sports = [Sport.NBA, Sport.NFL, Sport.MLB, Sport.SOCCER_EPL, Sport.SOCCER_LIGA_MX]
+    any_data = False
+    for sport in sports:
+        alias = next((k for k, v in SPORT_ALIASES.items() if v is sport), sport.name)
+        days, last = model_freshness(sport, args.games_db)
+        if days is None:
+            print(f"  {sport.name:<16} sin datos    (betbot ingest --sport {alias})")
+            continue
+        any_data = True
+        model, err = load_trained_model(sport, args.games_db)
+        estado = "modelo OK" if model else "MODELO NO CARGA"
+        if not model:
+            problems.append(f"{sport.name}: {err}")
+        if days > 365:
+            marca = "OBSOLETO"
+            warnings.append(
+                f"{sport.name}: el ultimo partido ingerido es de hace {days} dias "
+                f"({last}). Los ratings no reflejan las plantillas actuales — "
+                f"NO escanees en vivo con esto."
+            )
+        elif days > 30:
+            marca = "desactualizado"
+            warnings.append(f"{sport.name}: {days} dias sin actualizar datos.")
+        else:
+            marca = "al dia"
+        print(f"  {sport.name:<16} ultimo {last} ({days}d, {marca}) | {estado}")
+
+    if not any_data:
+        problems.append("No hay ningun dato historico ingerido todavia.")
+
+    print("\n=== SENALES Y CLV ===")
+    store = SignalStore(settings.db_path)
+    abiertas = store.open_signals()
+    liquidadas = store.settled_signals()
+    sin_cierre = store.missed_close()
+    print(f"  senales abiertas       {len(abiertas)}")
+    print(f"  senales liquidadas     {len(liquidadas)}")
+    print(f"  sin cierre capturado   {len(sin_cierre)}")
+    if sin_cierre:
+        warnings.append(
+            f"{len(sin_cierre)} senales sin linea de cierre: no son evaluables por "
+            f"CLV. Programa `betbot close` en cron cada 10-15 minutos."
+        )
+
+    if args.api:
+        print("\n=== THE ODDS API (consume 1 credito) ===")
+        if not settings.odds_api_key:
+            print("  omitido: falta la API key")
+        else:
+            from betbot.odds.the_odds_api import OddsAPIError, TheOddsAPI
+
+            provider = TheOddsAPI(settings.odds_api_key, regions=settings.regions)
+            try:
+                events = provider.fetch_events(Sport.NBA, [Market.MONEYLINE])
+                print(f"  conexion OK | {len(events)} eventos NBA")
+                print(f"  cuota restante: {provider.credits_remaining}")
+                if events:
+                    ev = events[0]
+                    print(f"  ejemplo: {ev.away_team} @ {ev.home_team} "
+                          f"({len(ev.books)} cotizaciones)")
+                    nombres = {o.name for b in ev.books for o in b.outcomes}
+                    print(f"  nombres de equipo en el feed: {sorted(nombres)[:4]}")
+                    print("  ^ COMPRUEBA que coinciden con los de tu BD historica.")
+                if provider.credits_remaining is not None and provider.credits_remaining < 100:
+                    warnings.append(
+                        f"Cuota baja: {provider.credits_remaining} requests restantes."
+                    )
+            except OddsAPIError as e:
+                problems.append(f"The Odds API no responde: {e}")
+                print(f"  ERROR: {e}")
+    else:
+        print("\n=== THE ODDS API ===")
+        print("  omitido (usa --api para probar la conexion, cuesta 1 credito)")
+
+    print()
+    if problems:
+        print("PROBLEMAS QUE BLOQUEAN LA OPERACION:")
+        for x in problems:
+            print(f"  - {x}")
+    if warnings:
+        print("AVISOS:")
+        for x in warnings:
+            print(f"  - {x}")
+    if not problems and not warnings:
+        print("Todo en orden.")
+    return 1 if problems else 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     from betbot.backtest.metrics import clv_summary
 
@@ -356,6 +512,8 @@ def main(argv: list[str] | None = None) -> int:
 
     p_scan = sub.add_parser("scan", help="escaneo real (consume cuota de la API)")
     p_scan.add_argument("--sport", default="nba", help=f"uno de {sorted(SPORT_ALIASES)}")
+    p_scan.add_argument("--games-db", default="data/games.db",
+                        help="BD de resultados historicos para entrenar el modelo")
     p_scan.set_defaults(func=cmd_scan)
 
     p_ing = sub.add_parser("ingest", help="descarga resultados historicos")
@@ -371,6 +529,12 @@ def main(argv: list[str] | None = None) -> int:
     p_bt.add_argument("--sport", default="nba", help=f"uno de {sorted(SPORT_ALIASES)}")
     p_bt.add_argument("--db", default="data/games.db")
     p_bt.set_defaults(func=cmd_backtest)
+
+    p_doc = sub.add_parser("doctor", help="diagnostico: config, datos, frescura, API")
+    p_doc.add_argument("--api", action="store_true",
+                       help="probar tambien la conexion con The Odds API (1 credito)")
+    p_doc.add_argument("--games-db", default="data/games.db")
+    p_doc.set_defaults(func=cmd_doctor)
 
     p_close = sub.add_parser("close", help="captura lineas de cierre (cron cada 10-15 min)")
     p_close.add_argument("--window", type=int, default=30,

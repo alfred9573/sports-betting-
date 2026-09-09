@@ -15,6 +15,18 @@ datos reales**: 71.086 partidos en total (NBA, MLB, NFL y Premier League).
 Lo que falta para operar: registrar odds de cierre en vivo y validar con dinero
 de papel. Ver *Lo que falta* al final.
 
+## Para ponerlo a funcionar
+
+**[RUNBOOK.md](RUNBOOK.md)** — guía operativa paso a paso: instalación, API key,
+validación de adaptadores, cron y dinero de papel. Empieza por ahí si tu objetivo
+es operar, no leer código.
+
+Primer comando útil:
+
+```bash
+python -m betbot.cli doctor      # config, datos, frescura de modelos y CLV
+```
+
 ## Arranque rápido
 
 ```bash
@@ -25,7 +37,8 @@ pip install -e ".[dev]"
 python -m betbot.cli demo                              # pipeline, datos sintéticos, sin red
 python -m betbot.cli ingest --sport nba --from 2000 --to 2015
 python -m betbot.cli backtest --sport nba              # walk-forward real
-pytest -q                                              # 269 tests
+python -m betbot.cli doctor                            # diagnostico
+pytest -q                                              # 276 tests
 ```
 
 El núcleo no tiene dependencias: solo stdlib. `pandas`/`requests` quedan en el
@@ -54,7 +67,7 @@ backtest/     Brier, log-loss, calibración, CLV, ROI con error típico
 alerts/       Consola y Telegram
 storage.py    SQLite: señales, odds de cierre, liquidación
 closing.py    Captura de línea de cierre (el job que hace medible el CLV)
-cli.py        demo / ingest / backtest / scan / close / report
+cli.py        doctor / demo / ingest / backtest / scan / close / report
 ```
 
 El motor de EV no sabe nada de baloncesto, béisbol ni fútbol: solo consume
