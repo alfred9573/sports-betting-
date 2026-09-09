@@ -54,18 +54,25 @@ def cmd_demo(args: argparse.Namespace) -> int:
     engine = EVEngine(settings.ev_config())
 
     model = NBAModel()
-    # Historial sintetico: el local gana el 70% de sus partidos.
+    # Miniliga sintetica de cuatro equipos con resultados equilibrados, para que
+    # los ratings se queden cerca de 1500 y el modelo produzca una ventaja
+    # MODESTA. Es deliberado: un demo que enseñe un EV del 28% educa mal, porque
+    # en un escaneo real un EV asi es casi siempre un bug (nombres de equipo que
+    # no casan, devig roto o un modelo sin calibrar), no una oportunidad.
+    equipos = ["Boston Celtics", "Miami Heat", "New York Knicks", "Chicago Bulls"]
     games = []
-    for i in range(40):
-        home_win = i % 10 < 7
-        games.append(
-            {
-                "home": "Boston Celtics" if i % 2 == 0 else "Miami Heat",
-                "away": "Miami Heat" if i % 2 == 0 else "Boston Celtics",
-                "home_score": 112 if home_win else 100,
-                "away_score": 100 if home_win else 112,
-            }
-        )
+    for vuelta in range(12):
+        for i, local in enumerate(equipos):
+            visitante = equipos[(i + 1 + vuelta % 3) % len(equipos)]
+            if local == visitante:
+                continue
+            # El local gana ~58% de las veces: la ventaja de local real de la NBA.
+            gana_local = (vuelta * 4 + i) % 12 < 7
+            games.append({
+                "home": local, "away": visitante,
+                "home_score": 110 if gana_local else 102,
+                "away_score": 102 if gana_local else 110,
+            })
     model.fit(games)
 
     now = datetime.now(UTC)
@@ -76,12 +83,15 @@ def cmd_demo(args: argparse.Namespace) -> int:
         home_team="Boston Celtics",
         away_team="Miami Heat",
         books=(
+            # Pinnacle marca la linea; los libros blandos la copian con retraso.
+            # Aqui draftkings paga algo mejor el lado del local: eso es line
+            # shopping, la capa complementaria a la deteccion de EV.
             BookMarket("pinnacle", Market.MONEYLINE,
-                       (Outcome("Boston Celtics", 1.80), Outcome("Miami Heat", 2.15)), now),
+                       (Outcome("Boston Celtics", 1.66), Outcome("Miami Heat", 2.32)), now),
             BookMarket("draftkings", Market.MONEYLINE,
-                       (Outcome("Boston Celtics", 1.74), Outcome("Miami Heat", 2.25)), now),
+                       (Outcome("Boston Celtics", 1.72), Outcome("Miami Heat", 2.20)), now),
             BookMarket("fanduel", Market.MONEYLINE,
-                       (Outcome("Boston Celtics", 1.77), Outcome("Miami Heat", 2.10)), now),
+                       (Outcome("Boston Celtics", 1.68), Outcome("Miami Heat", 2.26)), now),
         ),
     )
 
