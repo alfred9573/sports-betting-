@@ -197,3 +197,73 @@ def test_unknown_sport_defaults_to_in_season():
         name = "CURLING"
 
     assert in_season(Fake())
+
+
+# ---------- regresion de entretemporada ----------
+
+def test_no_regression_within_the_same_season():
+    """En pretemporada (junio-septiembre en NBA) no ha arrancado nada nuevo:
+    los ratings de junio siguen siendo los buenos."""
+    from betbot.cli import seasons_started_since
+
+    assert seasons_started_since(Sport.NBA, "2026-06-14") == 0
+
+
+def test_counts_season_starts_not_season_numbers():
+    """Se cuenta por ARRANQUES de temporada porque cada fuente usa su propia
+    convencion: hoopR y 538 etiquetan la NBA por el ano de fin, nflverse la NFL
+    por el de inicio, y en MLB coincide con el ano natural."""
+    from betbot.cli import seasons_started_since
+
+    assert seasons_started_since(Sport.NBA, "2025-06-14") >= 1
+    assert seasons_started_since(Sport.NBA, "2024-06-14") >= 2
+
+
+def test_malformed_date_does_not_crash():
+    from betbot.cli import seasons_started_since
+
+    assert seasons_started_since(Sport.NBA, "no-es-fecha") == 0
+    assert seasons_started_since(Sport.NBA, "") == 0
+
+
+def test_regression_is_applied_when_loading_a_stale_model(db):
+    """EL BUG QUE ESTO PREVIENE: fit() solo regresa a la media cuando ve el
+    cambio de temporada DENTRO de los datos. Si la ultima temporada ingerida ya
+    termino, los ratings se quedaban como en la final — sin regresar pese a que
+    las plantillas cambiaron. Medido sobre datos reales: 68 puntos de Elo en el
+    lider, casi 10 puntos porcentuales de probabilidad."""
+    store = GameStore(db)
+    base = date(2024, 11, 1)
+    # Un equipo domina, para que su rating se despegue de 1500
+    store.upsert_many([
+        game(base + timedelta(days=i), home="Boston Celtics", away="Miami Heat",
+             hs=120, as_=100, season=2025)
+        for i in range(30)
+    ])
+
+    model, err = load_trained_model(Sport.NBA, db)
+    assert err is None
+    con_regresion = model.ratings.rating("Boston Celtics")
+
+    from betbot.models.nba import NBAModel
+
+    sin_regresion = NBAModel().fit(store.training_rows(Sport.NBA))
+    assert con_regresion < sin_regresion.ratings.rating("Boston Celtics")
+    # y debe seguir por encima de la media: regresa, no borra
+    assert con_regresion > 1500
+
+
+def test_regression_is_capped(db):
+    """Con datos muy viejos no se regresa indefinidamente: a partir de cierto
+    punto el modelo no sirve y de eso ya avisa `doctor` marcandolo OBSOLETO."""
+    from betbot.cli import seasons_started_since
+
+    store = GameStore(db)
+    store.upsert_many([
+        game(date(2010, 11, 1) + timedelta(days=i), hs=120, as_=100, season=2011)
+        for i in range(30)
+    ])
+    assert seasons_started_since(Sport.NBA, "2011-06-14") > 3
+    model, _ = load_trained_model(Sport.NBA, db)
+    # tres regresiones del 25% dejan el rating por encima de 1500, no en 1500
+    assert model.ratings.rating("Boston Celtics") > 1500

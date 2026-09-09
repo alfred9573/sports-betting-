@@ -224,3 +224,34 @@ def test_nba_historical_calibration_still_available():
     historico = NBAModel(shrink=1.0, ratings=EloRatings(
         EloConfig(k=10.0, home_advantage=85.0, mov_multiplier=True, min_games=10)))
     assert historico.ratings.config.home_advantage == pytest.approx(85.0)
+
+
+def test_new_season_resets_game_count_by_default():
+    """En backtest la eleccion conservadora es volver a exigir min_games."""
+    from betbot.models.elo import EloConfig, EloRatings
+
+    e = EloRatings(EloConfig(min_games=10))
+    for _ in range(15):
+        e.update("A", "B", 110, 100)
+    assert e.is_reliable("A")
+    e.new_season()
+    assert not e.is_reliable("A")
+
+
+def test_new_season_can_preserve_game_count():
+    """EL BUG QUE ESTO PREVIENE: al aplicar la regresion de entretemporada en el
+    camino de prediccion en vivo, poner el contador a cero hacia que ningun
+    equipo pasara el filtro min_games. El bot no habria emitido ni una senal
+    durante el primer mes de cada temporada."""
+    from betbot.models.elo import EloConfig, EloRatings
+
+    e = EloRatings(EloConfig(min_games=10))
+    for _ in range(15):
+        e.update("A", "B", 110, 100)
+    antes = e.rating("A")
+
+    e.new_season(reset_games=False)
+
+    assert e.is_reliable("A")           # sigue siendo predecible
+    assert e.rating("A") < antes        # pero el rating si regreso
+    assert e.rating("A") > 1500

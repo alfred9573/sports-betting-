@@ -89,11 +89,27 @@ class EloRatings:
         winner_diff = diff if hs > as_ else -diff
         return math.log(margin + 1.0) * (2.2 / (winner_diff * 0.001 + 2.2))
 
-    def new_season(self) -> None:
+    def new_season(self, reset_games: bool = True) -> None:
         """Regresion a la media entre temporadas. Sin esto el modelo arrastra
-        rosters que ya no existen."""
+        rosters que ya no existen.
+
+        `reset_games` controla si ademas se pone a cero el contador de partidos,
+        y los dos usos son deliberadamente distintos:
+
+        - BACKTEST (True, por defecto): el modelo vuelve a exigir `min_games`
+          partidos de la nueva temporada antes de predecir. Es la eleccion
+          conservadora y es la que produjo los numeros publicados.
+
+        - PREDICCION EN VIVO (False): un equipo con cientos de partidos de
+          historia y su rating ya regresado SI es predecible desde la jornada 1.
+          Es lo que hace cualquier Elo publicado, que emite ratings de
+          pretemporada. Poner el contador a cero aqui dejaria al bot mudo
+          durante el primer mes de cada temporada, sin ninguna evidencia de que
+          eso sea mejor.
+        """
         r = self.config.regression_to_mean
         base = self.config.initial_rating
         for team, rating in self.ratings.items():
             self.ratings[team] = rating + r * (base - rating)
-        self.games_played = {t: 0 for t in self.games_played}
+        if reset_games:
+            self.games_played = {t: 0 for t in self.games_played}

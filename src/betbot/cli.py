@@ -283,7 +283,65 @@ def load_trained_model(sport, games_db: str = "data/games.db"):
         model = factory()
 
     model.fit(rows)
+
+    # REGRESION DE ENTRETEMPORADA. `fit` solo la aplica cuando encuentra el
+    # cambio de temporada DENTRO de los datos. Si la ultima temporada ingerida
+    # ya termino y ha empezado otra, los ratings se quedan tal cual estaban en
+    # la final — sin regresar a la media pese a que las plantillas cambiaron.
+    #
+    # Importa justo cuando mas: en las primeras semanas de temporada, el equipo
+    # que arraso en junio conserva un rating inflado, el mercado ya ha
+    # descontado los fichajes y las bajas, y el modelo "encuentra valor" a
+    # favor de un favorito que ya no es tan favorito. Es una forma sistematica
+    # de perder dinero en octubre y noviembre.
+    pendientes = seasons_started_since(sport, rows[-1]["date"])
+    if pendientes and hasattr(model, "ratings"):
+        for _ in range(min(pendientes, 3)):
+            # reset_games=False: ver la docstring de EloRatings.new_season. En
+            # vivo, un equipo con historia y rating regresado es predecible
+            # desde la jornada 1; poner el contador a cero dejaria al bot mudo
+            # todo octubre.
+            model.ratings.new_season(reset_games=False)
+        log.info(
+            "aplicada regresion de entretemporada x%d (ultimo partido: %s)",
+            min(pendientes, 3), rows[-1]["date"],
+        )
+
     return model, None
+
+
+def seasons_started_since(sport, last_game_date: str) -> int:
+    """Cuantas temporadas han ARRANCADO desde el ultimo partido ingerido.
+
+    Se cuenta por inicios de temporada en lugar de por el numero de temporada
+    porque cada fuente usa su propia convencion: hoopR y 538 etiquetan la NBA
+    por el ano de FIN, nflverse etiqueta la NFL por el de INICIO, y en MLB
+    coincide con el ano natural. Contar arranques evita depender de eso.
+    """
+    from datetime import date
+
+    try:
+        from betbot.ingest.sources.espn import _SEASON_WINDOWS
+    except ImportError:
+        return 0
+
+    window = _SEASON_WINDOWS.get(sport)
+    if window is None:
+        return 0
+
+    (start_month, start_day), _, _ = window
+    try:
+        last = date.fromisoformat(last_game_date)
+    except (ValueError, TypeError):
+        return 0
+
+    today = date.today()
+    count = 0
+    for year in range(last.year, today.year + 1):
+        arranque = date(year, start_month, start_day)
+        if last < arranque <= today:
+            count += 1
+    return count
 
 
 def model_freshness(sport, games_db: str = "data/games.db") -> tuple[int | None, str | None]:
