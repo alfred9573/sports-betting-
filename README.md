@@ -29,10 +29,12 @@ python -m betbot.cli doctor      # config, datos, frescura de modelos y CLV
 
 ## Arranque rápido
 
+Todo esto se ejecuta en una terminal de tu máquina (ver
+[RUNBOOK.md](RUNBOOK.md) si no sabes por dónde empezar).
+
 ```bash
 git clone <repo> && cd sports-betting-
-cp .env.example .env          # rellena ODDS_API_KEY si vas a escanear en vivo
-pip install -e ".[dev]"
+bash scripts/setup.sh         # Python, venv, dependencias, tests y demo
 
 python -m betbot.cli demo                              # pipeline, datos sintéticos, sin red
 python -m betbot.cli ingest --sport nba --from 2000 --to 2015

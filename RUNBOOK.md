@@ -37,19 +37,47 @@ el peor edge medido (1,7%), así que no es donde quieres empezar.
 
 ## 1. Instalación (10 minutos)
 
+### Dónde se ejecuta todo esto
+
+En **una terminal de tu propia computadora**, no en un chat ni en un navegador.
+
+- **macOS**: Cmd+Espacio, escribe `Terminal`, Enter.
+- **Windows**: tecla Windows, escribe `PowerShell`, Enter. (Necesitas Python
+  instalado desde python.org marcando "Add to PATH".)
+- **Linux**: Ctrl+Alt+T.
+
+El bot tiene que vivir en tu máquina porque necesita red abierta hacia las APIs
+de odds y porque el cron debe correr todos los días acumulando historial. Un
+entorno temporal no sirve: al destruirse se pierde el CLV acumulado, que es
+justamente lo que estás midiendo.
+
+### Instalación
+
 ```bash
 git clone https://github.com/alfred9573/sports-betting-
 cd sports-betting-
 git checkout claude/sports-betting-analysis-bot-abfii9
-
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-
-pytest -q                      # 269 tests, deben pasar todos
-python -m betbot.cli demo      # pipeline completo, sin red, sin gastar cuota
+bash scripts/setup.sh
 ```
 
+`setup.sh` comprueba la versión de Python, crea el entorno virtual, instala
+dependencias, corre los tests y ejecuta el demo. Si algo falta, te dice qué.
+
 Si `demo` imprime una señal con su EV y su stake, el pipeline funciona.
+
+### Cómo llamar al bot a partir de ahora
+
+El entorno virtual mantiene las dependencias del bot separadas del Python del
+sistema. Desde la carpeta del repo:
+
+```bash
+.venv/bin/python -m betbot.cli doctor      # macOS / Linux
+.venv\Scripts\python -m betbot.cli doctor  # Windows
+```
+
+En el resto de este documento verás `python -m betbot.cli ...`; sustitúyelo por
+la ruta de arriba, o activa el entorno una vez por sesión de terminal con
+`source .venv/bin/activate` (macOS/Linux) y entonces `python` ya es el correcto.
 
 ---
 
