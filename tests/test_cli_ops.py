@@ -151,3 +151,49 @@ def test_future_season_returns_empty():
     from betbot.ingest.sources.espn import ESPNScoreboard
 
     assert ESPNScoreboard(Sport.NBA).fetch_season(date.today().year + 5) == []
+
+
+# ---------- deteccion de temporada ----------
+
+def _in_season_at(sport, year, month, day):
+    """Reimplementa la ventana para poder probar fechas concretas sin parchear
+    el reloj del sistema."""
+    from betbot.ingest.sources.espn import _SEASON_WINDOWS
+
+    (sm, sd), (em, ed), crosses = _SEASON_WINDOWS[sport]
+    today = date(year, month, day)
+    start = date(year, sm, sd)
+    if crosses:
+        return today >= start or today <= date(year, em, ed)
+    return start <= today <= date(year, em, ed)
+
+
+def test_nba_january_is_in_season():
+    assert _in_season_at(Sport.NBA, 2026, 1, 15)
+
+
+def test_nba_august_is_off_season():
+    """El caso que motivo esto: en verano el ultimo partido tiene ~87 dias y no
+    falta ningun dato. Avisar de 'desactualizado' durante meses hace que el
+    aviso se ignore justo cuando importa."""
+    assert not _in_season_at(Sport.NBA, 2026, 8, 15)
+
+
+def test_mlb_july_is_in_season():
+    assert _in_season_at(Sport.MLB, 2026, 7, 4)
+
+
+def test_mlb_january_is_off_season():
+    assert not _in_season_at(Sport.MLB, 2026, 1, 15)
+
+
+def test_unknown_sport_defaults_to_in_season():
+    """Ante la duda, avisar: es preferible un aviso de mas que datos viejos
+    usados en silencio."""
+    from betbot.cli import in_season
+
+    class Fake:
+        value = "curling"
+        name = "CURLING"
+
+    assert in_season(Fake())

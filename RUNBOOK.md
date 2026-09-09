@@ -129,62 +129,35 @@ puestos para no quemarla.
 
 ---
 
-## 3. Validar el adaptador de ESPN (el paso que desbloquea NBA)
-
-Sin esto no hay datos recientes de NBA. El adaptador está escrito y su parseo
-tiene tests, pero nunca ha visto la API real.
+## 3. Datos recientes de NBA
 
 ```bash
-python -m betbot.cli validate-source --sport nba --date 2025-01-15
+python -m betbot.cli ingest --sport nba --source hoopr --from 2016 --to 2026
 ```
 
-Usa una fecha con partidos de temporada regular. **Qué debe salir:**
+**El `--source hoopr` es obligatorio.** Sin él se usa el dataset de
+FiveThirtyEight, que se congeló en 2015 y produciría un modelo con ratings de
+plantillas de hace una década — sin dar ningún error.
 
-```
-  partidos obtenidos : 8
-  descartados        : 0
-  equipos sin alias  : ninguno
-    2025-01-15 Miami Heat @ Boston Celtics 104-112
-    ...
-Fuente validada. Ya puedes bajar temporadas completas:
-```
-
-**Si falla**, el comando te dice la causa probable. Por orden:
-
-- `Tunnel connection failed` / `urlopen error` → sin conexión o host bloqueado.
-- `HTTP 403` → la petición **llegó y fue rechazada**, no es un fallo de red. El
-  fetcher ya envía cabeceras de navegador; si aun así falla, prueba la misma URL
-  en el navegador para descartar bloqueo por región.
-- `equipos sin alias: [...]` → añádelos a `src/betbot/ingest/teams.py` y repite.
-  Esos partidos **no entran al entrenamiento** hasta que lo hagas.
-- `KeyError` o 0 partidos en una fecha que sí tuvo → ESPN cambió el formato del
-  JSON. Ajusta `_parse_event` en `src/betbot/ingest/sources/espn.py`; los tests
-  de `tests/test_sources.py` fijan el formato esperado y te dicen qué campo se
-  movió.
-- `Sin partidos ese dia` → no es un fallo, prueba otra fecha.
-
-Cuando funcione, baja las temporadas recientes:
-
-```bash
-python -m betbot.cli ingest --sport nba --source espn --from 2024 --to 2025
-```
-
-**El `--source espn` es obligatorio.** Sin él se usa el dataset de
-FiveThirtyEight, que termina en 2015.
-
-Esto tarda: el scoreboard de ESPN devuelve una fecha por llamada, así que una
-temporada de NBA son ~270 requests con pausa de 1 segundo (unos 5 minutos). El
-caché en disco hace que repetirlo salga gratis.
+`hoopr` es el espejo en GitHub de los datos de ESPN: los mismos partidos, pero
+en un solo CSV en vez de una petición por día. Tarda segundos, no minutos.
 
 Verifica:
 
 ```bash
-python -m betbot.cli doctor              # NBA debe salir "al dia"
+python -m betbot.cli doctor
 python -m betbot.cli backtest --sport nba
 ```
 
-El backtest sobre datos recientes debe seguir batiendo al baseline. Si no lo
-hace, para: algo va mal en la ingesta nueva.
+✅ **Bien si:** `doctor` dice `al dia` (o `fuera de temporada` si es verano) y el
+backtest bate al baseline: log-loss ≈ 0.619 frente a 0.684.
+
+### Sobre ESPN en vivo
+
+El adaptador `--source espn` consulta la API de ESPN día a día. **Devuelve 403
+desde muchas redes**, incluso con cabeceras de navegador. Se conserva porque
+cubre deportes que `hoopr` no, pero para NBA usa `hoopr`: son los mismos datos
+sin el bloqueo.
 
 ## 4. Primer escaneo real
 

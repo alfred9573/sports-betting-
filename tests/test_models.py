@@ -203,3 +203,24 @@ def test_stronger_attack_gets_more_expected_goals():
     )
     lh, la = m.expected_goals("Fuerte", "Debil")
     assert lh > la
+
+
+def test_nba_defaults_are_the_modern_calibration():
+    """Los defaults se recalibraron para la era moderna: la ventaja de local en
+    la NBA cayo del 60,3% de victorias (2000-2015) al 56,6% (2016-2026), y el
+    hfa=85 calibrado con datos viejos sobreestima al local en +5pp sobre datos
+    recientes. Que no se cambien por accidente."""
+    from betbot.models.nba import NBA_ELO
+
+    assert NBA_ELO.home_advantage == pytest.approx(65.0)
+    assert NBA_ELO.k == pytest.approx(10.0)
+    assert NBAModel().shrink == pytest.approx(0.95)
+
+
+def test_nba_historical_calibration_still_available():
+    """Reproducir los numeros historicos del README exige pasar hfa=85."""
+    from betbot.models.elo import EloConfig, EloRatings
+
+    historico = NBAModel(shrink=1.0, ratings=EloRatings(
+        EloConfig(k=10.0, home_advantage=85.0, mov_multiplier=True, min_games=10)))
+    assert historico.ratings.config.home_advantage == pytest.approx(85.0)

@@ -301,6 +301,36 @@ def model_freshness(sport, games_db: str = "data/games.db") -> tuple[int | None,
     return (date.today() - date.fromisoformat(last)).days, last
 
 
+def in_season(sport) -> bool:
+    """Si el deporte esta en temporada AHORA MISMO.
+
+    Sin esto, el aviso de datos desactualizados salta todo el verano en la NBA:
+    en septiembre el ultimo partido tiene 87 dias y no falta ningun dato, la
+    temporada simplemente termino. Un aviso que grita en falso durante meses se
+    acaba ignorando, y entonces no sirve cuando el problema es real.
+    """
+    from datetime import date
+
+    try:
+        from betbot.ingest.sources.espn import _SEASON_WINDOWS
+    except ImportError:
+        return True
+
+    window = _SEASON_WINDOWS.get(sport)
+    if window is None:
+        return True
+
+    (sm, sd), (em, ed), crosses = window
+    today = date.today()
+    start = date(today.year, sm, sd)
+    end = date(today.year + (1 if crosses else 0), em, ed)
+    if crosses:
+        # La temporada cruza el ano: se esta dentro si hoy cae despues del
+        # inicio de esta temporada o antes del fin de la anterior.
+        return today >= start or today <= date(today.year, em, ed)
+    return start <= today <= end
+
+
 def _make_source(sport, name: str | None = None):
     """Fuente historica del deporte. `name` elige explicitamente cual.
 
@@ -311,6 +341,12 @@ def _make_source(sport, name: str | None = None):
     """
     from betbot.types import Sport
 
+    if name in ("hoopr", "nba-reciente"):
+        from betbot.ingest.sources.hoopr_nba import HoopRNBA
+        if sport is not Sport.NBA:
+            return None
+        return HoopRNBA()
+
     if name == "espn":
         from betbot.ingest.sources.espn import ESPN_PATHS, ESPNScoreboard
         if sport not in ESPN_PATHS:
@@ -318,6 +354,8 @@ def _make_source(sport, name: str | None = None):
         return ESPNScoreboard(sport)
 
     if sport is Sport.NBA:
+        # Por defecto, la fuente con MAS historia (1946-2015). Para temporadas
+        # recientes hay que pedir `--source hoopr` de forma explicita.
         from betbot.ingest.sources.fivethirtyeight_nba import FiveThirtyEightNBA
         return FiveThirtyEightNBA()
     if sport is Sport.MLB:
@@ -412,6 +450,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         estado = "modelo OK" if model else "MODELO NO CARGA"
         if not model:
             problems.append(f"{sport.name}: {err}")
+        activo = in_season(sport)
         if days > 365:
             marca = "OBSOLETO"
             warnings.append(
@@ -419,9 +458,14 @@ def cmd_doctor(args: argparse.Namespace) -> int:
                 f"({last}). Los ratings no reflejan las plantillas actuales — "
                 f"NO escanees en vivo con esto."
             )
-        elif days > 30:
+        elif days > 30 and activo:
             marca = "desactualizado"
-            warnings.append(f"{sport.name}: {days} dias sin actualizar datos.")
+            warnings.append(
+                f"{sport.name}: {days} dias sin actualizar y la temporada esta "
+                f"en curso. Vuelve a ingerir antes de escanear."
+            )
+        elif not activo:
+            marca = "fuera de temporada"
         else:
             marca = "al dia"
         print(f"  {sport.name:<16} ultimo {last} ({days}d, {marca}) | {estado}")
@@ -618,8 +662,9 @@ def main(argv: list[str] | None = None) -> int:
     p_ing.add_argument("--from", dest="start", type=int, default=2000)
     p_ing.add_argument("--to", dest="end", type=int, default=2015)
     p_ing.add_argument("--source", default=None,
-                       help="'espn' para temporadas recientes; por defecto, el "
-                            "dataset historico de cada deporte")
+                       help="'hoopr' para NBA reciente (2002-hoy), 'espn' para "
+                            "consulta dia a dia; por defecto, el dataset "
+                            "historico de cada deporte")
     p_ing.add_argument("--db", default="data/games.db")
     p_ing.add_argument("--force", action="store_true", help="rehacer temporadas ya ingeridas")
     p_ing.set_defaults(func=cmd_ingest)

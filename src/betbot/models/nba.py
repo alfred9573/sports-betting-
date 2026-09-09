@@ -13,22 +13,35 @@ from dataclasses import dataclass, field
 from betbot.models.elo import EloConfig, EloRatings
 from betbot.types import Event, Market, ModelProbabilities
 
-# CALIBRADO CON DATOS REALES, no de memoria. Procedimiento: barrido de
-# parametros sobre 2000-2010 (14.213 partidos, dataset Elo de FiveThirtyEight),
-# seleccion por log-loss walk-forward, y validacion en el holdout 2011-2015
-# (5.543 partidos nunca vistos en la seleccion).
+# CALIBRADO CON DATOS REALES, y RECALIBRADO para la era moderna.
+#
+# Primera calibracion, sobre 2000-2015 (dataset de FiveThirtyEight), seleccion
+# en 2000-2010 y holdout 2011-2015:
 #
 #   defaults iniciales (k=20, hfa=60):  holdout log-loss 0.6028, gap medio -3.16%
-#   calibrados (k=10, hfa=85):          holdout log-loss 0.5979, gap medio +0.89%
+#   calibrados         (k=10, hfa=85):  holdout log-loss 0.5979, gap medio +0.89%
 #
-# Lo relevante no es el log-loss (mejora modesta) sino el GAP: con hfa=60 los
-# diez deciles de calibracion tenian sesgo negativo, o sea el modelo infravaloraba
-# al local en todo el rango. Un sesgo sistematico asi no se ve en las metricas
-# agregadas y se traduce en apostar siempre al lado equivocado de la misma
-# moneda. La ventaja de local en NBA vale ~85 puntos de Elo, no 60.
+# Lo relevante alli no fue el log-loss sino el GAP: con hfa=60 los diez deciles
+# tenian sesgo negativo, o sea el modelo infravaloraba al local en todo el rango.
+#
+# LA VENTAJA DE LOCAL HA BAJADO. Con datos de 2016-2026 (hoopR/ESPN, 14.168
+# partidos) aquel hfa=85 pasa a sobreestimar al local, porque la ventaja de local
+# real cayo del 60,3% de victorias (2000-2015) al 56,6% (2016-2026). Segunda
+# calibracion, seleccion en 2016-2022 y holdout 2023-2026:
+#
+#   hfa=85 (calibrado en 2000-2015):  holdout log-loss 0.6244, gap medio +5.02%
+#   hfa=65 (calibrado en 2016-2022):  holdout log-loss 0.6191, gap medio +2.22%
+#
+# Los defaults son los MODERNOS, porque el caso de uso es apostar partidos de
+# hoy. Para reproducir los resultados historicos del README hay que pasar
+# home_advantage=85 explicitamente.
+#
+# Queda un sesgo residual de +2,2 puntos porcentuales que no se ha eliminado: la
+# ventaja de local sigue cayendo dentro del propio periodo de validacion, asi que
+# cualquier constante unica llega tarde. Merece revisarse cada temporada.
 NBA_ELO = EloConfig(
     k=10.0,
-    home_advantage=85.0,
+    home_advantage=65.0,
     initial_rating=1500.0,
     mov_multiplier=True,
     regression_to_mean=0.25,
@@ -42,14 +55,14 @@ class NBAModel:
 
     name: str = "nba_elo_v1"
     ratings: EloRatings = field(default_factory=lambda: EloRatings(NBA_ELO))
-    shrink: float = 1.0
+    shrink: float = 0.95
     """Encogimiento hacia 50/50 (1.0 = desactivado).
 
-    Se puso a 0.90 asumiendo que un Elo crudo esta sobreconfiado en los extremos.
-    Los datos dicen que no: con la ventaja de local bien calibrada (85 pts), el
-    encogimiento empeora el holdout — estaba compensando el sesgo de hfa=60, no
-    un defecto real del Elo. Se conserva el parametro porque un modelo entrenado
-    con menos historia si puede necesitarlo."""
+    Historia de este parametro, que ilustra por que hay que medir en vez de
+    razonar: se puso a 0.90 asumiendo que un Elo crudo esta sobreconfiado en los
+    extremos. Con la calibracion de 2000-2015 result0 contraproducente (estaba
+    compensando un hfa mal puesto, no un defecto del Elo) y se subio a 1.0. Con
+    datos modernos vuelve a aportar, pero poco: 0.95."""
 
     def fit(self, games: list[dict]) -> NBAModel:
         """Entrena en orden cronologico.

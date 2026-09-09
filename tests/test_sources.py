@@ -229,3 +229,112 @@ def test_espn_rejects_unsupported_sport():
 
 def test_espn_handles_empty_payload():
     assert ESPNScoreboard(Sport.NBA).parse({}) == []
+
+
+# ---------- hoopR NBA (temporadas recientes) ----------
+
+def _hoopr_row(season="2026", stype="2", home="Boston Celtics", away="Miami Heat",
+               hs="112", as_="104", date="2026-01-15T00:30Z", gid="401700001",
+               completed="TRUE", neutral="false"):
+    return {
+        "id": gid, "season": season, "season_type": stype, "date": date,
+        "status_type_completed": completed, "neutral_site": neutral,
+        "home_display_name": home, "away_display_name": away,
+        "home_score": hs, "away_score": as_,
+    }
+
+
+def test_hoopr_parses_completed_game():
+    from betbot.ingest.sources.hoopr_nba import HoopRNBA
+
+    g = HoopRNBA().parse([_hoopr_row()])[0]
+    assert g.home_team == "Boston Celtics"
+    assert (g.home_score, g.away_score) == (112, 104)
+    assert g.game_date.isoformat() == "2026-01-15"
+    assert g.season == 2026
+
+
+def test_hoopr_skips_unfinished_games():
+    from betbot.ingest.sources.hoopr_nba import HoopRNBA
+
+    assert HoopRNBA().parse([_hoopr_row(completed="FALSE")]) == []
+
+
+def test_hoopr_excludes_preseason():
+    """season_type 1 es pretemporada: alineaciones irreales y esfuerzo nulo."""
+    from betbot.ingest.sources.hoopr_nba import HoopRNBA
+
+    assert HoopRNBA().parse([_hoopr_row(stype="1")]) == []
+
+
+def test_hoopr_includes_playoffs_and_playin():
+    from betbot.ingest.sources.hoopr_nba import HoopRNBA
+
+    assert HoopRNBA().parse([_hoopr_row(stype="3")])[0].playoff
+    assert HoopRNBA().parse([_hoopr_row(stype="5")])[0].playoff
+
+
+def test_hoopr_can_exclude_playoffs():
+    from betbot.ingest.sources.hoopr_nba import HoopRNBA
+
+    assert HoopRNBA(include_playoffs=False).parse([_hoopr_row(stype="3")]) == []
+
+
+def test_hoopr_excludes_allstar_games():
+    """Los partidos del All-Star vienen con season_type=2, IGUAL que la
+    temporada regular, asi que ese campo no los filtra. Lo que los excluye es
+    que sus equipos no existen en el registro canonico. Son marcadores absurdos
+    (211-186) que desplazarian los ratings de todos los participantes."""
+    from betbot.ingest.sources.hoopr_nba import HoopRNBA
+
+    src = HoopRNBA()
+    rows = [
+        _hoopr_row(home="Team Chuck", away="Team Shaq", hs="211", as_="186"),
+        _hoopr_row(home="Western Conf All-Stars", away="Eastern Conf All-Stars",
+                   gid="2"),
+        _hoopr_row(home="World", away="USA", gid="3"),
+    ]
+    assert src.parse(rows) == []
+    assert src.exhibition_skipped == 3
+    # y NO deben ensuciar el aviso de cobertura real del registro
+    assert src.skipped == []
+
+
+def test_hoopr_real_unknown_team_is_reported_as_problem():
+    """Un equipo de verdad que falte SI debe salir en `skipped`, para que el
+    aviso de la ingesta señale problemas reales de cobertura."""
+    from betbot.ingest.sources.hoopr_nba import HoopRNBA
+
+    src = HoopRNBA()
+    assert src.parse([_hoopr_row(home="Equipo Nuevo Inventado")]) == []
+    assert src.skipped
+
+
+def test_hoopr_marks_neutral_site():
+    from betbot.ingest.sources.hoopr_nba import HoopRNBA
+
+    assert HoopRNBA().parse([_hoopr_row(neutral="true")])[0].neutral_site
+
+
+def test_hoopr_season_filter():
+    from betbot.ingest.sources.hoopr_nba import HoopRNBA
+
+    rows = [_hoopr_row(season="2024", gid="a"), _hoopr_row(season="2026", gid="b")]
+    got = HoopRNBA().parse(rows, seasons={2026})
+    assert len(got) == 1 and got[0].season == 2026
+
+
+def test_hoopr_handles_float_scores():
+    """El CSV puede traer los marcadores como '112.0'."""
+    from betbot.ingest.sources.hoopr_nba import HoopRNBA
+
+    g = HoopRNBA().parse([_hoopr_row(hs="112.0", as_="104.0")])[0]
+    assert (g.home_score, g.away_score) == (112, 104)
+
+
+def test_hoopr_bad_score_is_recorded():
+    from betbot.ingest.sources.hoopr_nba import HoopRNBA
+
+    src = HoopRNBA()
+    assert src.parse([_hoopr_row(hs="")]) == []
+    assert src.skipped
