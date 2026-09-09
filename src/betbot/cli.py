@@ -239,7 +239,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         # El futbol tiene tres resultados: metricas multiclase (RPS), no binarias.
         from betbot.backtest.walkforward import walk_forward_soccer
         from betbot.models.soccer import PoissonSoccerModel
-        result = walk_forward_soccer(rows, PoissonSoccerModel)
+        result = walk_forward_soccer(rows, lambda: PoissonSoccerModel.for_league(sport))
     else:
         result = walk_forward_elo(rows, factory)
     print(result)
@@ -264,6 +264,9 @@ def _make_source(sport, name: str | None):
     if sport is Sport.NFL:
         from betbot.ingest.sources.nfl_nflverse import NFLverse
         return NFLverse()
+    if sport is Sport.SOCCER_LIGA_MX:
+        from betbot.ingest.sources.ligamx_csv import LigaMX
+        return LigaMX()
     return None
 
 

@@ -202,11 +202,49 @@ EPL_TEAMS: dict[str, list[str]] = {
     "Oldham Athletic": ["Oldham"],
 }
 
+# Liga MX. Los nombres canonicos siguen la convencion de The Odds API, que es la
+# que hay que casar en el momento de la senal. Los alias cubren worldfootball,
+# ESPN y las abreviaturas de uso comun.
+#
+# Decision explicita sobre Monarcas Morelia: la franquicia se traslado a
+# Mazatlan en 2020 y paso a llamarse Mazatlan FC. Se tratan como el MISMO
+# equipo, igual que Seattle SuperSonics -> Oklahoma City Thunder en la NBA.
+# Nunca coexistieron (Morelia jugo hasta 2019-20, Mazatlan desde 2020-21), asi
+# que no hay colision. Si prefieres tratarlos como equipos distintos —defendible,
+# porque la plantilla se disperso— saca "Monarcas Morelia" de esta lista y
+# creale su propia entrada.
+LIGA_MX_TEAMS: dict[str, list[str]] = {
+    "Club America": ["America", "CF America", "Club América", "CF América", "Águilas"],
+    "Guadalajara Chivas": ["Guadalajara", "Chivas", "Deportivo Guadalajara",
+                            "CD Guadalajara", "Chivas Guadalajara"],
+    "Cruz Azul": ["CD Cruz Azul", "La Maquina"],
+    "Pumas UNAM": ["Pumas", "UNAM", "UNAM Pumas", "Club Universidad Nacional"],
+    "Tigres UANL": ["Tigres", "UANL Tigres", "UANL"],
+    "Monterrey": ["CF Monterrey", "Rayados", "Club de Futbol Monterrey"],
+    "Toluca": ["Deportivo Toluca", "Toluca FC", "Diablos Rojos"],
+    "Pachuca": ["CF Pachuca", "Tuzos"],
+    "Atlas": ["Atlas Guadalajara", "Atlas FC", "Rojinegros"],
+    "Necaxa": ["Club Necaxa", "Rayos"],
+    "Puebla": ["Puebla FC", "Club Puebla", "La Franja"],
+    "Santos Laguna": ["Santos", "Club Santos Laguna", "Guerreros"],
+    "Queretaro": ["Gallos Blancos", "Querétaro", "Queretaro FC", "Gallos"],
+    "Club Tijuana": ["Tijuana", "Xolos", "Club Tijuana Xolos"],
+    "FC Juarez": ["FC Juárez", "Juarez", "Juárez", "Bravos"],
+    "Mazatlan FC": ["Mazatlán FC", "Mazatlan", "Mazatlán", "Monarcas Morelia",
+                     "Morelia", "Monarcas"],
+    "Atletico San Luis": ["Atlético San Luis", "San Luis", "AT San Luis"],
+    "Leon": ["Club León", "León", "Club Leon", "La Fiera"],
+    # Desaparecidos de la primera division, presentes en el historico
+    "Veracruz": ["CD Veracruz", "Tiburones Rojos"],
+    "Lobos BUAP": ["Lobos", "BUAP"],
+}
+
 _SPORT_TABLES: dict[Sport, dict[str, list[str]]] = {
     Sport.NBA: NBA_TEAMS,
     Sport.MLB: MLB_TEAMS,
     Sport.NFL: NFL_TEAMS,
     Sport.SOCCER_EPL: EPL_TEAMS,
+    Sport.SOCCER_LIGA_MX: LIGA_MX_TEAMS,
 }
 
 

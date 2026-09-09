@@ -12,13 +12,36 @@ exactamente el rango donde el bot creeria ver valor donde no lo hay.
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass, field
 
-from betbot.types import Event, Market, ModelProbabilities
+from betbot.types import Event, Market, ModelProbabilities, Sport
+
+log = logging.getLogger(__name__)
 
 MAX_GOALS = 10  # trunca la cola; P(>10 goles) < 1e-5 con lambdas realistas
 DRAW = "Draw"
+
+
+# PARAMETROS POR LIGA. No es un adorno: cada liga tiene su propia ventaja de
+# local y su propia tendencia al empate, y usar los de otra introduce sesgo
+# sistematico. Medido entre Premier League y Liga MX: los parametros ingleses
+# aplicados a Mexico sobreestiman al local 2,8 puntos porcentuales e
+# infravaloran al visitante 3,0. El RPS apenas cambia (+0.0003 en holdout,
+# indistinguible de ruido con 756 partidos), pero el error de calibracion se
+# reduce a la mitad (2,83% -> 1,53%) — y un sesgo sistematico significa apostar
+# siempre al lado equivocado de la misma moneda.
+#
+# Cada entrada es (home_advantage, rho, decay), calibrada walk-forward con
+# seleccion en un periodo temprano y validacion en holdout posterior.
+LEAGUE_PRESETS: dict[Sport, tuple[float, float, float]] = {
+    # 8.360 partidos (1995-2016). Seleccion 1995-2009, holdout 2010-2017.
+    Sport.SOCCER_EPL: (1.44, -0.28, 0.0030),
+    # 2.049 partidos (2018-2024). Seleccion 2018-2021, holdout 2022-2024.
+    # Muestra pequena: tomar estos valores como preliminares.
+    Sport.SOCCER_LIGA_MX: (1.28, -0.18, 0.0030),
+}
 
 
 def _poisson_pmf(k: int, lam: float) -> float:
@@ -82,6 +105,25 @@ class PoissonSoccerModel:
     memoria mas larga el RPS mejora de forma consistente en todo el barrido."""
     min_matches: int = 8
     strengths: dict[str, TeamStrength] = field(default_factory=dict)
+
+    @classmethod
+    def for_league(cls, sport: Sport, **kwargs) -> PoissonSoccerModel:
+        """Modelo con los parametros calibrados de esa liga.
+
+        Si la liga no tiene preset, usa los de la Premier League y avisa: son
+        los mejor validados que hay (8.360 partidos), pero aplicarlos a otra
+        liga sin calibrar arrastra el sesgo documentado arriba.
+        """
+        preset = LEAGUE_PRESETS.get(sport)
+        if preset is None:
+            log.warning(
+                "sin preset calibrado para %s: se usan los de Premier League. "
+                "Calibra con `betbot backtest` antes de apostar esta liga.",
+                sport.name,
+            )
+            preset = LEAGUE_PRESETS[Sport.SOCCER_EPL]
+        hfa, rho, decay = preset
+        return cls(home_advantage=hfa, rho=rho, decay=decay, **kwargs)
 
     def fit(self, matches: list[dict]) -> PoissonSoccerModel:
         """Estima fuerzas por medias ponderadas por recencia.

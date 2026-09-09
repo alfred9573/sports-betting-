@@ -25,7 +25,7 @@ pip install -e ".[dev]"
 python -m betbot.cli demo                              # pipeline, datos sintéticos, sin red
 python -m betbot.cli ingest --sport nba --from 2000 --to 2015
 python -m betbot.cli backtest --sport nba              # walk-forward real
-pytest -q                                              # 240 tests
+pytest -q                                              # 269 tests
 ```
 
 El núcleo no tiene dependencias: solo stdlib. `pandas`/`requests` quedan en el
@@ -71,14 +71,25 @@ posterior nunca visto. Baseline = predecir siempre la frecuencia base.
 | **NBA** | 20.536 | 0.5979 | 0.6757 | +0.0778 | **11.5%** | 67.2% |
 | **NFL** | 7.276 | 0.6254 | 0.6854 | +0.0600 | **8.8%** | 65.6% |
 | **Fútbol (EPL)** | 8.360 | 0.9905 | 1.0643 | +0.0739 | **6.9%** | 52.6% |
+| **Fútbol (Liga MX)** | 2.049 | 1.0311 | 1.0682 | +0.0371 | **3.5%** | 49.1% |
 | **MLB** | 34.914 | 0.6788 | 0.6903 | +0.0116 | **1.7%** | 56.7% |
 
 El fútbol usa log-loss multiclase (tres resultados, baseline ln(3)=1.0986), así
 que su columna relativa no es estrictamente comparable con las binarias. Por RPS
-—la métrica estándar de 1X2— queda en 0.2012 frente a un baseline de 0.2272, una
-mejora relativa del 11,4%, muy cerca de la NBA.
+—la métrica estándar de 1X2— las dos ligas quedan así:
 
-**El orden por calidad de modelo es NBA > fútbol ≈ NFL >> MLB.**
+| Liga | RPS | Baseline | Mejora relativa |
+|---|---|---|---|
+| Premier League | 0.2012 | 0.2272 | **11,4%** |
+| Liga MX | 0.2125 | 0.2257 | **5,9%** |
+
+**Orden por calidad de modelo: NBA > EPL > NFL > Liga MX >> MLB.**
+
+La Liga MX rinde alrededor de la mitad que la Premier. Dos causas plausibles y no
+excluyentes: la muestra disponible es mucho menor (2.049 partidos frente a 8.360,
+la fuente solo cubre desde 2018-19), y la estructura de torneos cortos —Apertura
+y Clausura de 17 jornadas cada uno— deja menos partidos por equipo antes de que
+el modelo tenga que predecir.
 
 ### Me equivoqué sobre la NFL
 
@@ -170,6 +181,31 @@ Señal de que no es overfitting: la misma combinación gana en los dos criterios
 la vez —mejor RPS y mejor calibración por clase (gap máximo 0,08% en train)—, y
 generaliza al holdout.
 
+### Los parámetros del modelo son específicos de cada liga
+
+Aplicar a la Liga MX los parámetros calibrados en la Premier produce sesgo
+sistemático: sobreestima al local 2,8 puntos porcentuales e infravalora al
+visitante 3,0.
+
+| | Holdout RPS | \|gap\|max |
+|---|---|---|
+| Parámetros de la Premier | 0.2077 | 2,83% |
+| Calibrados en Liga MX | 0.2074 | **1,53%** |
+
+Fíjate en lo que cambia y lo que no. **El RPS mejora solo +0.0003 — indistinguible
+de ruido con 756 partidos de holdout.** Si me hubiera quedado en la métrica
+agregada, la conclusión habría sido "da igual". Pero el error de calibración se
+reduce a la mitad, y eso sí importa: un sesgo sistemático de 3pp significa apostar
+siempre al lado equivocado de la misma moneda.
+
+Por eso `PoissonSoccerModel.for_league(sport)` carga los parámetros medidos de
+cada liga, y avisa por log cuando una liga no tiene preset propio (cae a los de
+la Premier, los mejor validados, pero arrastrando el sesgo).
+
+Los valores de Liga MX son **preliminares**: 2.049 partidos es poca muestra y el
+barrido entero cabe en un rango de RPS de 0,0037, señal de que hay poco que
+afinar con estos datos.
+
 ## Las tres decisiones que sostienen el sistema
 
 ### 1. Nunca comparar el modelo contra `1/odds`
@@ -229,6 +265,7 @@ y medio. El cliente usa un mercado y una región por defecto, y expone
 | FiveThirtyEight Elo | NBA | 1946-2015 | ✅ validada, 0 descartes |
 | nflverse/nfldata | NFL | 1999-2025 | ✅ validada, 0 descartes |
 | engsoccerdata | Fútbol inglés | 1888-2016 | ✅ validada, 0 descartes |
+| footballcsv/mexico | Liga MX | 2018-2025 | ✅ validada, 0 descartes |
 | MLB StatsAPI | MLB | actual + histórico | ⚠️ sin probar en vivo |
 | ESPN scoreboard | NBA/NFL/MLB/fútbol | temporadas recientes | ⚠️ sin probar en vivo |
 
@@ -268,11 +305,13 @@ crece, el job no corre con frecuencia suficiente y te estás quedando ciego.
 3. **MLE Dixon-Coles** en fútbol: `fit()` usa estimador de momentos, suficiente
    para validar el pipeline, insuficiente para producción. Y usar xG en vez de
    goles, que predice mejor.
-4. **Más ligas de fútbol**: solo está validada la Premier League. La Liga MX y
-   el resto de ligas top-5 necesitan su fuente y su tabla de alias (`teams.py`
-   solo tiene equipos ingleses por ahora).
+4. **Resto de ligas top-5** (La Liga, Serie A, Bundesliga, Ligue 1, Champions):
+   necesitan fuente, tabla de alias y su propio preset calibrado. `engsoccerdata`
+   ya sirve España (`spain.csv`), así que esa es la más barata de añadir.
 5. **xG en lugar de goles** para el modelo de fútbol: predice mejor que el
    resultado real, que es una muestra pequeñísima de un proceso ruidoso.
+6. **Más historia de Liga MX**: la fuente actual arranca en 2018-19. Con más
+   temporadas, los presets dejarían de ser preliminares.
 
 ## Advertencia
 
