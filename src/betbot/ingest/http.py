@@ -26,7 +26,22 @@ from betbot.net import CERT_HELP, is_certificate_error, ssl_context
 
 log = logging.getLogger(__name__)
 
-USER_AGENT = "betbot/0.1 (analisis deportivo personal)"
+# Varias APIs publicas no documentadas (ESPN entre ellas) devuelven 403 a
+# cualquier User-Agent que no parezca un navegador. No es autenticacion ni un
+# muro de pago: es un filtro basico contra scrapers, y con un UA identificable
+# como "betbot/0.1" la peticion se rechaza sin llegar a los datos.
+#
+# Se envian cabeceras de navegador para uso PERSONAL Y DE BAJO VOLUMEN, con el
+# limite de tasa puesto (1 req/s por defecto). Si una fuente publica sus
+# condiciones de uso o expone una API documentada con key, usa esa en su lugar.
+BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 
 class FetchError(RuntimeError):
@@ -41,6 +56,7 @@ class CachedFetcher:
         max_retries: int = 4,
         timeout: int = 60,
         enabled: bool = True,
+        headers: dict[str, str] | None = None,
     ) -> None:
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -48,6 +64,7 @@ class CachedFetcher:
         self.max_retries = max_retries
         self.timeout = timeout
         self.enabled = enabled
+        self.headers = dict(headers or BROWSER_HEADERS)
         self._last_request = 0.0
         self.stats = {"hits": 0, "misses": 0, "retries": 0}
 
@@ -79,7 +96,7 @@ class CachedFetcher:
                 time.sleep(wait)
             self._throttle()
             try:
-                req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+                req = urllib.request.Request(url, headers=self.headers)
                 with urllib.request.urlopen(
                     req, timeout=self.timeout, context=ssl_context()
                 ) as resp:
@@ -90,7 +107,7 @@ class CachedFetcher:
             except urllib.error.HTTPError as e:
                 # 4xx (salvo 429) no se arregla reintentando.
                 if e.code != 429 and 400 <= e.code < 500:
-                    raise FetchError(f"HTTP {e.code} en {url}") from e
+                    raise FetchError(f"HTTP {e.code} en {url}{_http_hint(e.code)}") from e
                 last_error = e
             except (urllib.error.URLError, TimeoutError, OSError) as e:
                 # Un fallo de certificados no se arregla reintentando: es de
@@ -112,3 +129,20 @@ class CachedFetcher:
             # No dejar en cache una respuesta corrupta: envenenaria las corridas siguientes.
             self._cache_path(url, ".json").unlink(missing_ok=True)
             raise FetchError(f"JSON invalido en {url}: {e}") from e
+
+
+def _http_hint(code: int) -> str:
+    """Pista accionable segun el codigo, en vez de un numero a secas."""
+    if code == 403:
+        return (
+            "\n  403 = la peticion llego y fue RECHAZADA (no es un fallo de red).\n"
+            "  Causa habitual: la fuente filtra por User-Agent. El fetcher ya\n"
+            "  envia cabeceras de navegador; si aun asi falla, puede ser bloqueo\n"
+            "  por region o por volumen. Prueba desde el navegador la misma URL."
+        )
+    if code == 404:
+        return (
+            "\n  404 = esa ruta no existe. Si es un dataset por temporada, puede\n"
+            "  que esa temporada aun no este publicada."
+        )
+    return ""

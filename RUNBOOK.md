@@ -152,6 +152,9 @@ Fuente validada. Ya puedes bajar temporadas completas:
 **Si falla**, el comando te dice la causa probable. Por orden:
 
 - `Tunnel connection failed` / `urlopen error` → sin conexión o host bloqueado.
+- `HTTP 403` → la petición **llegó y fue rechazada**, no es un fallo de red. El
+  fetcher ya envía cabeceras de navegador; si aun así falla, prueba la misma URL
+  en el navegador para descartar bloqueo por región.
 - `equipos sin alias: [...]` → añádelos a `src/betbot/ingest/teams.py` y repite.
   Esos partidos **no entran al entrenamiento** hasta que lo hagas.
 - `KeyError` o 0 partidos en una fecha que sí tuvo → ESPN cambió el formato del
@@ -305,6 +308,7 @@ como OBSOLETO cualquier cosa por encima de un año.
 | EV absurdos (>20%) | Devig roto o nombres mal casados | Revisa que el mercado traiga todas sus patas |
 | `cuota agotada` | Presupuesto mensual consumido | Espacia el escaneo; nunca `close` |
 | `CERTIFICATE_VERIFY_FAILED` | Python en macOS sin certificados | `.venv/bin/pip install certifi` |
+| `HTTP 403` en una fuente | Filtro por User-Agent o bloqueo regional | Ver paso 3; prueba la URL en el navegador |
 | CLV vacío en el reporte | `close` no está en cron | Añádelo cada 10 minutos |
 | Muchas señales de golpe | Casi seguro un bug | No apuestes; investiga primero |
 
