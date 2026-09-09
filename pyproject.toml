@@ -7,7 +7,10 @@ name = "betbot"
 version = "0.1.0"
 description = "Bot de analisis de apuestas deportivas basado en valor esperado (EV)"
 requires-python = ">=3.11"
-dependencies = []   # el nucleo corre en stdlib puro, a proposito
+# El nucleo de modelado corre en stdlib puro, a proposito. La unica dependencia
+# es el bundle de certificados: la verificacion TLS tiene que funcionar nada mas
+# instalar, y el Python de macOS no trae certificados utilizables por defecto.
+dependencies = ["certifi>=2024.2.2"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.4", "ruff>=0.4"]

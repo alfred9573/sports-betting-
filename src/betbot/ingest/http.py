@@ -22,6 +22,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from betbot.net import CERT_HELP, is_certificate_error, ssl_context
+
 log = logging.getLogger(__name__)
 
 USER_AGENT = "betbot/0.1 (analisis deportivo personal)"
@@ -78,7 +80,9 @@ class CachedFetcher:
             self._throttle()
             try:
                 req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                with urllib.request.urlopen(
+                    req, timeout=self.timeout, context=ssl_context()
+                ) as resp:
                     data = resp.read()
                 if self.enabled:
                     path.write_bytes(data)
@@ -89,6 +93,10 @@ class CachedFetcher:
                     raise FetchError(f"HTTP {e.code} en {url}") from e
                 last_error = e
             except (urllib.error.URLError, TimeoutError, OSError) as e:
+                # Un fallo de certificados no se arregla reintentando: es de
+                # configuracion. Abortar de inmediato con la explicacion.
+                if is_certificate_error(e):
+                    raise FetchError(f"{e}\n{CERT_HELP}") from e
                 last_error = e
 
         raise FetchError(f"fallo tras {self.max_retries} intentos: {url} ({last_error})")

@@ -304,6 +304,7 @@ como OBSOLETO cualquier cosa por encima de un año.
 | `No hay datos historicos de X` | Falta ingerir | `betbot ingest --sport X` |
 | EV absurdos (>20%) | Devig roto o nombres mal casados | Revisa que el mercado traiga todas sus patas |
 | `cuota agotada` | Presupuesto mensual consumido | Espacia el escaneo; nunca `close` |
+| `CERTIFICATE_VERIFY_FAILED` | Python en macOS sin certificados | `.venv/bin/pip install certifi` |
 | CLV vacío en el reporte | `close` no está en cron | Añádelo cada 10 minutos |
 | Muchas señales de golpe | Casi seguro un bug | No apuestes; investiga primero |
 

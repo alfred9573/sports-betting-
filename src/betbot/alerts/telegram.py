@@ -7,6 +7,7 @@ import logging
 import urllib.error
 import urllib.request
 
+from betbot.net import ssl_context
 from betbot.types import Signal
 
 log = logging.getLogger(__name__)
@@ -49,7 +50,9 @@ class TelegramAlerter:
             headers={"Content-Type": "application/json"},
         )
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            with urllib.request.urlopen(
+                req, timeout=self.timeout, context=ssl_context()
+            ) as resp:
                 return resp.status == 200
         except (urllib.error.URLError, urllib.error.HTTPError) as e:
             # Una alerta perdida no debe tumbar el escaneo entero.

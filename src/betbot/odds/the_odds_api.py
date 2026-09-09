@@ -16,6 +16,7 @@ import urllib.parse
 import urllib.request
 from datetime import UTC, datetime
 
+from betbot.net import CERT_HELP, is_certificate_error, ssl_context
 from betbot.types import BookMarket, Event, Market, Outcome, Sport
 
 log = logging.getLogger(__name__)
@@ -51,7 +52,9 @@ class TheOddsAPI:
         url = f"{BASE_URL}{path}?{query}"
         req = urllib.request.Request(url, headers={"Accept": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            with urllib.request.urlopen(
+                req, timeout=self.timeout, context=ssl_context()
+            ) as resp:
                 # Estos headers son la unica forma fiable de saber cuanta cuota queda.
                 remaining = resp.headers.get("x-requests-remaining")
                 used = resp.headers.get("x-requests-used")
@@ -68,6 +71,8 @@ class TheOddsAPI:
                 raise OddsAPIError("cuota agotada o rate limit alcanzado") from e
             raise OddsAPIError(f"HTTP {e.code}: {detail}") from e
         except urllib.error.URLError as e:
+            if is_certificate_error(e):
+                raise OddsAPIError(f"{e.reason}\n{CERT_HELP}") from e
             raise OddsAPIError(f"error de red: {e.reason}") from e
 
         if self.credits_remaining is not None and self.credits_remaining < 50:

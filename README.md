@@ -40,11 +40,13 @@ python -m betbot.cli demo                              # pipeline, datos sintét
 python -m betbot.cli ingest --sport nba --from 2000 --to 2015
 python -m betbot.cli backtest --sport nba              # walk-forward real
 python -m betbot.cli doctor                            # diagnostico
-pytest -q                                              # 286 tests
+pytest -q                                              # 297 tests
 ```
 
-El núcleo no tiene dependencias: solo stdlib. `pandas`/`requests` quedan en el
-extra `data`, para la ingesta histórica.
+El núcleo de modelado corre en stdlib puro. La única dependencia es `certifi`
+(el bundle de certificados): la verificación TLS tiene que funcionar nada más
+instalar, y el Python de macOS no trae certificados utilizables por defecto.
+`pandas` queda en el extra `data`.
 
 ## Arquitectura
 
