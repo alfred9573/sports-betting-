@@ -129,7 +129,44 @@ puestos para no quemarla.
 
 ---
 
-## 3. Datos recientes de NBA
+## 3. Qué puedes operar HOY
+
+No todas las fuentes están al día, y el modelo no puede predecir una temporada
+de la que no tiene datos (la barrera de cobertura lo bloquea). Estado real:
+
+| Liga | Fuente con temporada en curso | ¿Operable hoy? |
+|---|---|---|
+| **Premier League** | `openfootball` | ✅ sí |
+| La Liga, Serie A, Bundesliga, Ligue 1 | `openfootball` | ⚠️ sin preset calibrado |
+| NBA | `hoopr` (hasta jun 2026) | ⛔ hasta que arranque y se juegue |
+| NFL | `nflverse` | ⛔ hasta que se jueguen partidos |
+| **Liga MX** | ninguna encontrada | ⛔ ver abajo |
+| MLB | Retrosheet llega a 2025 | ⛔ falta 2026 |
+
+### Liga MX: sin fuente actual
+
+`footballcsv/mexico` se quedó en 2024-25 y no hay ningún espejo en GitHub con la
+temporada en curso. Las alternativas son de pago (API-Football cubre Liga MX) o
+la API de ESPN, que devuelve 403 desde muchas redes. Hasta resolverlo, la Liga MX
+sirve para validar metodología pero no para operar.
+
+## 3b. Premier League (lo que sí funciona ahora)
+
+```bash
+python -m betbot.cli ingest --sport epl --source openfootball --from 2016 --to 2026
+python -m betbot.cli doctor
+python -m betbot.cli backtest --sport epl
+```
+
+✅ **Bien si:** `doctor` dice `al dia` y el backtest da RPS ≈ 0.201 frente a un
+baseline de 0.233.
+
+**No mezcles fuentes de fútbol.** Si ya ingeriste `engsoccerdata`, sus temporadas
+se solapan con `openfootball` y los partidos entrarían dos veces — cada resultado
+contaría el doble y el modelo exageraría las diferencias entre equipos. `ingest`
+te avisa si lo detecta; lo más limpio es borrar la BD y reingerir con una sola.
+
+## 3c. Datos recientes de NBA
 
 ```bash
 python -m betbot.cli ingest --sport nba --source hoopr --from 2016 --to 2026

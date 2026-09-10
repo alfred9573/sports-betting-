@@ -338,3 +338,79 @@ def test_hoopr_bad_score_is_recorded():
     src = HoopRNBA()
     assert src.parse([_hoopr_row(hs="")]) == []
     assert src.skipped
+
+
+# ---------- openfootball (temporada en curso) ----------
+
+# Centinela propio: hay que distinguir "no se paso marcador" de "score=None",
+# que es como openfootball marca un partido aun no jugado.
+_SIN_ESPECIFICAR = object()
+
+
+def _of_match(date="2026-08-21", home="Arsenal FC", away="Coventry City FC",
+              score=_SIN_ESPECIFICAR):
+    if score is _SIN_ESPECIFICAR:
+        score = {"ht": [2, 0], "ft": [3, 0]}
+    return {"round": "Matchday 1", "date": date, "time": "20:00",
+            "team1": home, "team2": away, "score": score}
+
+
+def _of_parse(*matches, season=2026):
+    from betbot.ingest.sources.openfootball_json import OpenFootballJSON
+
+    src = OpenFootballJSON(Sport.SOCCER_EPL)
+    return src, src.parse({"matches": list(matches)}, season)
+
+
+def test_openfootball_team1_is_home():
+    """No esta etiquetado en el JSON: es una convencion. Invertirla no rompe
+    nada visiblemente, solo hace que el modelo aprenda la ventaja de local al
+    reves."""
+    _, games = _of_parse(_of_match())
+    assert games[0].home_team == "Arsenal"
+    assert games[0].away_team == "Coventry City"
+    assert (games[0].home_score, games[0].away_score) == (3, 0)
+
+
+def test_openfootball_handles_dict_score():
+    _, games = _of_parse(_of_match(score={"ht": [1, 1], "ft": [2, 1]}))
+    assert (games[0].home_score, games[0].away_score) == (2, 1)
+
+
+def test_openfootball_handles_list_score():
+    """Forma corta, sin datos de descanso. Conviven las dos en el mismo fichero:
+    en 2025-26 hay 353 del primer tipo y 27 del segundo. Asumir solo una hace
+    que el parseo reviente a mitad de temporada."""
+    _, games = _of_parse(_of_match(score=[0, 0]))
+    assert (games[0].home_score, games[0].away_score) == (0, 0)
+    assert games[0].is_draw
+
+
+def test_openfootball_skips_unplayed_matches():
+    """En una temporada en curso la mayoria de partidos aun no se jugaron."""
+    src, games = _of_parse(_of_match(score=None), _of_match(score={"ht": [0, 0]}))
+    assert games == []
+    assert src.unplayed == 2
+    assert src.skipped == []   # no jugado != dato roto
+
+
+def test_openfootball_rejects_unsupported_league():
+    from betbot.ingest.sources.openfootball_json import OpenFootballJSON
+
+    with pytest.raises(ValueError, match="no cubierta"):
+        OpenFootballJSON(Sport.SOCCER_LIGA_MX)
+
+
+def test_openfootball_season_label():
+    from betbot.ingest.sources.openfootball_json import OpenFootballJSON
+
+    assert OpenFootballJSON.season_label(2026) == "2026-27"
+
+
+def test_openfootball_source_name_includes_league():
+    """Dos ligas distintas no deben compartir `source`, o la deduplicacion las
+    mezclaria."""
+    from betbot.ingest.sources.openfootball_json import OpenFootballJSON
+
+    assert OpenFootballJSON(Sport.SOCCER_EPL).name != \
+           OpenFootballJSON(Sport.SOCCER_LA_LIGA).name

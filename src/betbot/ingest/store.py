@@ -160,6 +160,29 @@ class GameStore:
             prev_season = g["season"]
         return out
 
+    def cross_source_duplicates(self, sport: Sport) -> list[dict]:
+        """Partidos que parecen el mismo pero vienen de fuentes distintas.
+
+        La clave de deduplicacion es (source, source_id), asi que dos fuentes
+        que cubran temporadas solapadas meten los mismos partidos dos veces sin
+        que salte nada. El efecto es silencioso y grave: cada resultado cuenta
+        el doble en el entrenamiento, y el Elo exagera todas las diferencias.
+
+        No se borra nada automaticamente porque en beisbol un doubleheader
+        comparte fecha y equipos de forma legitima. Se informa para que decidas.
+        """
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT game_date, home_team, away_team, COUNT(DISTINCT source) n_fuentes, "
+                "       GROUP_CONCAT(DISTINCT source) fuentes "
+                "FROM games WHERE sport=? "
+                "GROUP BY game_date, home_team, away_team "
+                "HAVING n_fuentes > 1 "
+                "ORDER BY game_date DESC",
+                (sport.value,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
     def summary(self) -> list[dict]:
         with self._conn() as c:
             rows = c.execute(

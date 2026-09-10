@@ -227,6 +227,18 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     # una fuente puede intentar varios campos y resolver por el segundo. Avisar
     # por cada intento fallido genera alarmas falsas que se acaban ignorando, que
     # es justo como se cuela despues una perdida de datos de verdad.
+    solapados = store.cross_source_duplicates(sport)
+    if solapados:
+        print(
+            f"\nAVISO: {len(solapados)} partidos aparecen con MAS DE UNA FUENTE.\n"
+            f"  Ejemplo: {solapados[0]['game_date']} "
+            f"{solapados[0]['away_team']} @ {solapados[0]['home_team']} "
+            f"({solapados[0]['fuentes']})\n"
+            f"  Cada uno cuenta DOS VECES en el entrenamiento y el modelo exagera\n"
+            f"  las diferencias entre equipos. Usa una sola fuente por rango de\n"
+            f"  temporadas, o borra la BD y reingiere:  rm {args.db}"
+        )
+
     dropped = getattr(source, "skipped", [])
     if dropped:
         muestra = sorted(dict.fromkeys(dropped))[:10]
@@ -472,6 +484,12 @@ def _make_source(sport, name: str | None = None):
     explicita, y por eso este parametro tiene que respetarse.
     """
     from betbot.types import Sport
+
+    if name in ("openfootball", "of"):
+        from betbot.ingest.sources.openfootball_json import LEAGUE_CODES, OpenFootballJSON
+        if sport not in LEAGUE_CODES:
+            return None
+        return OpenFootballJSON(sport)
 
     if name in ("hoopr", "nba-reciente"):
         from betbot.ingest.sources.hoopr_nba import HoopRNBA

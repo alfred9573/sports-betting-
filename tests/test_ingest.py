@@ -133,3 +133,33 @@ def test_summary_groups_by_season(store):
     store.upsert_many([game(1, season=2014), game(2, season=2015), game(3, season=2015)])
     rows = {r["season"]: r["n"] for r in store.summary()}
     assert rows == {2014: 1, 2015: 2}
+
+
+# ---------- duplicados entre fuentes ----------
+
+def test_cross_source_duplicates_are_detected(store):
+    """La clave de deduplicacion es (source, source_id), asi que dos fuentes con
+    temporadas solapadas meten los mismos partidos dos veces sin que salte nada.
+    Cada resultado contaria el doble en el entrenamiento y el Elo exagerararia
+    todas las diferencias."""
+    a = game(1, source="fuente_a", source_id="1")
+    b = game(1, source="fuente_b", source_id="1")
+    store.upsert_many([a, b])
+    dups = store.cross_source_duplicates(Sport.NBA)
+    assert len(dups) == 1
+    assert dups[0]["n_fuentes"] == 2
+
+
+def test_same_source_is_not_flagged_as_duplicate(store):
+    """Un doubleheader legitimo comparte fecha y equipos dentro de la MISMA
+    fuente: eso no es duplicado."""
+    store.upsert_many([
+        game(1, source="retrosheet", source_id="1"),
+        game(1, source="retrosheet", source_id="2"),
+    ])
+    assert store.cross_source_duplicates(Sport.NBA) == []
+
+
+def test_no_duplicates_reported_when_clean(store):
+    store.upsert_many([game(1), game(2)])
+    assert store.cross_source_duplicates(Sport.NBA) == []

@@ -40,7 +40,7 @@ python -m betbot.cli demo                              # pipeline, datos sintét
 python -m betbot.cli ingest --sport nba --from 2000 --to 2015
 python -m betbot.cli backtest --sport nba              # walk-forward real
 python -m betbot.cli doctor                            # diagnostico
-pytest -q                                              # 334 tests
+pytest -q                                              # 344 tests
 ```
 
 El núcleo de modelado corre en stdlib puro. La única dependencia es `certifi`
@@ -284,7 +284,8 @@ y medio. El cliente usa un mercado y una región por defecto, y expone
 | hoopR-nba-data (espejo ESPN) | NBA | 2002-actual | ✅ validada, 0 descartes |
 | nflverse/nfldata | NFL | 1999-2025 | ✅ validada, 0 descartes |
 | engsoccerdata | Fútbol inglés | 1888-2016 | ✅ validada, 0 descartes |
-| footballcsv/mexico | Liga MX | 2018-2025 | ✅ validada, 0 descartes |
+| footballcsv/mexico | Liga MX | 2018-2025 | ✅ validada, pero **sin temporada actual** |
+| openfootball/football.json | EPL, La Liga, Serie A, Bundesliga, Ligue 1 | 2016-actual | ✅ validada, temporada en curso |
 | MLB StatsAPI | MLB | actual + histórico | ⚠️ sin probar en vivo |
 | ESPN scoreboard | NBA/NFL/MLB/fútbol | temporadas recientes | ❌ devuelve 403 |
 

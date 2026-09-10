@@ -133,11 +133,16 @@ def test_source_id_distinguishes_matches():
 # ---------- presets por liga ----------
 
 def test_ligamx_preset_differs_from_epl():
-    """Cada liga tiene su ventaja de local. Usar la inglesa en Mexico
-    sobreestimaba al local 2,8pp."""
+    """Cada liga tiene sus parametros propios.
+
+    Nota historica: este test comprobaba que Mexico tenia MENOS ventaja de local
+    que Inglaterra, y era cierto frente a la calibracion inglesa de 1995-2016
+    (1.44). Al recalibrar la Premier con datos de 2016-2026 las dos convergen en
+    1.28: el futbol ingles moderno perdio ventaja de local hasta igualar a la
+    Liga MX. Lo que sigue distinguiendolas es la tendencia al empate."""
     epl = PoissonSoccerModel.for_league(Sport.SOCCER_EPL)
     mx = PoissonSoccerModel.for_league(Sport.SOCCER_LIGA_MX)
-    assert mx.home_advantage < epl.home_advantage
+    assert (mx.home_advantage, mx.rho) != (epl.home_advantage, epl.rho)
     assert mx.rho != epl.rho
 
 

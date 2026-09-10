@@ -36,8 +36,22 @@ DRAW = "Draw"
 # Cada entrada es (home_advantage, rho, decay), calibrada walk-forward con
 # seleccion en un periodo temprano y validacion en holdout posterior.
 LEAGUE_PRESETS: dict[Sport, tuple[float, float, float]] = {
-    # 8.360 partidos (1995-2016). Seleccion 1995-2009, holdout 2010-2017.
-    Sport.SOCCER_EPL: (1.44, -0.28, 0.0030),
+    # Premier League, RECALIBRADA para la era moderna. Igual que en la NBA, los
+    # parametros ajustados con datos antiguos sobreestiman al local.
+    #
+    # Primera calibracion, 8.360 partidos de 1995-2016 (engsoccerdata):
+    #   (1.44, -0.28)  ->  holdout 2010-2017: RPS 0.2012
+    #
+    # El futbol moderno tiene menos ventaja de local y menos empates: las tasas
+    # base pasaron de 46,6/25,8/27,6 (1995-2016) a 44,6/23,3/32,1 (2016-2026).
+    # Con 3.830 partidos de openfootball (2016-2026), seleccion 2016-2022 y
+    # holdout 2023-2026:
+    #   (1.44, -0.28)  ->  holdout RPS 0.2036, |gap|max 5.85%
+    #   (1.28, -0.10)  ->  holdout RPS 0.2011, |gap|max 2.90%
+    #
+    # El rho sube de -0.28 a -0.10 porque hay menos empates que corregir. Se
+    # adoptan los modernos porque el caso de uso es apostar partidos de hoy.
+    Sport.SOCCER_EPL: (1.28, -0.10, 0.0030),
     # 2.049 partidos (2018-2024). Seleccion 2018-2021, holdout 2022-2024.
     # Muestra pequena: tomar estos valores como preliminares.
     Sport.SOCCER_LIGA_MX: (1.28, -0.18, 0.0030),
