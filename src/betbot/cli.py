@@ -139,6 +139,17 @@ def cmd_scan(args: argparse.Namespace) -> int:
         print(f"Error consultando odds: {e}", file=sys.stderr)
         return 1
 
+    # Reserva de cuota: ver Settings.quota_reserve.
+    restante = provider.credits_remaining
+    if restante is not None and restante <= settings.quota_reserve and not args.force:
+        print(
+            f"Quedan {restante} creditos, por debajo de la reserva de "
+            f"{settings.quota_reserve}. `scan` se abstiene para que `close` pueda "
+            f"seguir capturando cierres: una senal perdida cuesta una oportunidad, "
+            f"un cierre perdido cuesta poder evaluar la apuesta."
+        )
+        return 0
+
     print(f"{len(events)} eventos obtenidos. Cuota restante: {provider.credits_remaining}")
 
     model, err = load_trained_model(sport, args.games_db)

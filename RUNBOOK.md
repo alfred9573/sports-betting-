@@ -290,44 +290,59 @@ sucesivos.
 
 ## 5. Cron: escaneo y captura de cierre
 
-La captura de cierre es **lo que hace medible el CLV**, y el CLV es lo único que
-te dirá si tienes ventaja antes de que pasen dos temporadas.
+```bash
+bash scripts/install-cron.sh epl nfl
+```
+
+Te enseña exactamente qué va a añadir y pide confirmación antes de tocar nada.
+Reinstalarlo reemplaza el bloque anterior sin duplicarlo, y respeta el resto de
+tu crontab. Para quitarlo: `bash scripts/uninstall-cron.sh`.
+
+Qué instala:
+
+| Tarea | Frecuencia | Coste en cuota |
+|---|---|---|
+| `scan` por deporte | 3 veces al día | ~90 créditos/mes por deporte |
+| `close` | cada 10 min | solo cuando hay señales por empezar |
+| `report` | diario 9:00 | 0 |
+| `ingest` semanal | martes 6:00 | 0 (GitHub, no la API) |
+| `doctor` | lunes 8:00 | 0 |
+
+Con dos deportes son ~180 créditos de escaneo más los cierres: cabe en los 500
+del plan gratuito con margen.
+
+### La reserva de cuota
+
+Si quedan menos de 60 créditos, **`scan` se abstiene solo** y deja pasar únicamente
+la captura de cierres. La prioridad es deliberada:
+
+> Una señal que no encuentras es una oportunidad perdida.
+> Un cierre que no capturas es una apuesta que **nunca** podrás evaluar.
+
+Quedarse sin cuota a mitad de mes con señales abiertas y sin cierres es el peor
+resultado posible: acumulas apuestas que no sirven ni para aprender. Ajustable
+con `QUOTA_RESERVE` en `.env`.
+
+### Si las tareas no se ejecutan (macOS)
+
+macOS restringe el acceso a disco de los procesos en segundo plano. Si `crontab -l`
+muestra las tareas pero `logs/` sigue vacío:
+
+**Ajustes → Privacidad y seguridad → Acceso total al disco → + → `/usr/sbin/cron`**
+
+(Cmd+Shift+G en el diálogo para escribir la ruta.) Después, comprueba:
 
 ```bash
-crontab -e
+tail -f logs/scan.log
 ```
 
-```cron
-# Escaneo cada 2 horas (ajusta a tu cuota)
-0 */2 * * * cd /ruta/sports-betting- && .venv/bin/python -m betbot.cli scan --sport nba >> logs/scan.log 2>&1
+### Por qué un envoltorio y no el comando directo
 
-# Captura de línea de cierre cada 10 minutos — NO lo espacies más
-*/10 * * * * cd /ruta/sports-betting- && .venv/bin/python -m betbot.cli close >> logs/close.log 2>&1
-
-# Reporte diario
-0 9 * * * cd /ruta/sports-betting- && .venv/bin/python -m betbot.cli report >> logs/report.log 2>&1
-```
-
-```bash
-mkdir -p logs
-```
-
-**Presupuesto de cuota**: escaneo cada 2h = 12 llamadas/día = 360/mes. Más la
-captura de cierre, que solo llama cuando hay señales pendientes. Con 500
-requests/mes vas justo con un solo deporte. Si te quedas corto, espacia el
-escaneo a cada 3-4 horas; **nunca espacies `close`**, porque cada cierre perdido
-es una apuesta que jamás podrás evaluar.
-
-Vigila esto en el reporte:
-
-```
-N senales se quedaron sin cierre capturado (no evaluables por CLV).
-```
-
-Si ese número crece, el cron no corre con suficiente frecuencia y te estás
-quedando ciego sin enterarte.
-
----
+Cron no arranca tu shell: no hay `PATH`, no hay variables de entorno y el
+directorio de trabajo es tu home, no el repo. Un comando que funciona en tu
+terminal falla en cron por cualquiera de esas tres cosas — y falla en silencio
+si no rediriges la salida. `scripts/betbot-cron.sh` se encarga de eso, añade
+marca de tiempo a cada ejecución y rota los logs a los 5 MB.
 
 ## 6. Dinero de papel: qué mirar y cuándo decidir
 

@@ -33,6 +33,16 @@ class Settings:
     max_stake_pct: float = 0.02
     db_path: str = "data/betbot.db"
     regions: str = "us"
+    quota_reserve: int = 60
+    """Creditos de The Odds API que se reservan para `close`.
+
+    Cuando quedan menos que esto, `scan` se abstiene y deja pasar solo la
+    captura de cierres. La prioridad es deliberada: una senal que no encuentras
+    es una oportunidad perdida, pero un cierre que no capturas es una apuesta
+    que NUNCA podras evaluar por CLV — y el CLV es lo unico que dice si el bot
+    tiene ventaja antes de que pasen varias temporadas. Quedarse sin cuota a
+    mitad de mes con senales abiertas y sin cierres es el peor resultado
+    posible."""
 
     @classmethod
     def from_env(cls, dotenv: str | Path = ".env") -> Settings:
@@ -47,6 +57,7 @@ class Settings:
             max_stake_pct=float(os.getenv("MAX_STAKE_PCT", "0.02")),
             db_path=os.getenv("DB_PATH", "data/betbot.db"),
             regions=os.getenv("ODDS_REGIONS", "us"),
+            quota_reserve=int(os.getenv("QUOTA_RESERVE", "60")),
         )
 
     def ev_config(self) -> EVConfig:

@@ -40,7 +40,7 @@ python -m betbot.cli demo                              # pipeline, datos sintét
 python -m betbot.cli ingest --sport nba --from 2000 --to 2015
 python -m betbot.cli backtest --sport nba              # walk-forward real
 python -m betbot.cli doctor                            # diagnostico
-pytest -q                                              # 344 tests
+pytest -q                                              # 347 tests
 ```
 
 El núcleo de modelado corre en stdlib puro. La única dependencia es `certifi`
@@ -301,9 +301,11 @@ temporada solo está como event files). Para 2024 hay que usar StatsAPI o ESPN.
 ## Medir CLV desde el día uno
 
 ```bash
-# en cron, cada 10-15 minutos
-*/10 * * * * cd /ruta/sports-betting- && python -m betbot.cli close
+bash scripts/install-cron.sh epl nfl
 ```
+
+Instala escaneo, captura de cierres, reporte diario y reingesta semanal. Enseña
+lo que va a hacer antes de tocar tu crontab.
 
 `close` captura el precio de cierre de toda señal cuyo partido arranque en los
 próximos 30 minutos. Guarda dos referencias:

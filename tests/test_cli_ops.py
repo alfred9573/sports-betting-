@@ -326,3 +326,54 @@ def test_mlb_boundary_is_march_not_january():
 
     assert coverage_check(Sport.MLB, "2025-09-28", date(2026, 1, 15))[0]
     assert not coverage_check(Sport.MLB, "2025-09-28", date(2026, 4, 15))[0]
+
+
+# ---------- reserva de cuota ----------
+
+def test_quota_reserve_default():
+    """La reserva protege la captura de cierres frente al escaneo. Una senal
+    perdida cuesta una oportunidad; un cierre perdido cuesta poder EVALUAR la
+    apuesta, y sin CLV no hay forma de saber si el bot tiene ventaja antes de
+    que pasen varias temporadas."""
+    from betbot.config import Settings
+
+    assert Settings().quota_reserve == 60
+
+
+def test_quota_reserve_from_env(tmp_path, monkeypatch):
+    from betbot.config import Settings
+
+    monkeypatch.setenv("QUOTA_RESERVE", "120")
+    assert Settings.from_env(tmp_path / "no-existe.env").quota_reserve == 120
+
+
+def test_scan_aborts_below_reserve(tmp_path, monkeypatch, capsys):
+    """Con la cuota por debajo de la reserva, `scan` se abstiene sin error."""
+    import argparse
+
+    from betbot import cli
+
+    monkeypatch.setenv("ODDS_API_KEY", "fake")
+    monkeypatch.setenv("QUOTA_RESERVE", "60")
+
+    class FakeProvider:
+        credits_remaining = 25
+
+        def __init__(self, *a, **kw):
+            pass
+
+        def fetch_events(self, sport, markets):
+            return []
+
+    import betbot.odds.the_odds_api as api
+
+    monkeypatch.setattr(api, "TheOddsAPI", FakeProvider)
+
+    args = argparse.Namespace(
+        sport="nba", games_db=str(tmp_path / "g.db"), force=False,
+    )
+    code = cli.cmd_scan(args)
+    salida = capsys.readouterr().out
+    assert code == 0
+    assert "reserva" in salida
+    assert "close" in salida
