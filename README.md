@@ -82,6 +82,10 @@ cli.py        doctor / validate-source / demo / ingest / backtest /
 El motor de EV no sabe nada de baloncesto, béisbol ni fútbol: solo consume
 `ModelProbabilities`. Añadir un deporte es escribir un módulo nuevo en `models/`.
 
+> **[RESEARCH.md](RESEARCH.md)** — registro completo de hipótesis probadas, con
+> sus resultados. Incluye los fracasos, que son la mayoría y evitan repetir
+> callejones sin salida.
+
 ## ¿Le gana al mercado? No. (medido)
 
 Esta es la pregunta que importa, y durante casi todo el proyecto se estuvo
