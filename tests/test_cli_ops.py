@@ -1,6 +1,6 @@
 """Tests de las piezas operativas del CLI: modelo entrenado y frescura."""
 
-from datetime import date, timedelta
+from datetime import UTC, date, timedelta
 
 import pytest
 
@@ -267,3 +267,62 @@ def test_regression_is_capped(db):
     model, _ = load_trained_model(Sport.NBA, db)
     # tres regresiones del 25% dejan el rating por encima de 1500, no en 1500
     assert model.ratings.rating("Boston Celtics") > 1500
+
+
+# ---------- barrera de cobertura de temporada ----------
+
+def test_blocks_games_from_an_untrained_season():
+    """LA BARRERA MAS IMPORTANTE. Un Elo entrenado hasta junio no sabe nada del
+    verano: draft, traspasos, fichajes, lesiones. El mercado si, y ya lo ha
+    puesto en el precio. El modelo interpreta esa diferencia como VALOR.
+
+    Caso real observado: 16 senales con EV de hasta +79,8%, todas con el modelo
+    mas confiado que el mercado. No se parece a un fallo — se parece exactamente
+    a lo que uno querria ver si el bot funcionara."""
+    from betbot.cli import coverage_check
+
+    ok, motivo = coverage_check(Sport.NBA, "2026-06-14", date(2026, 10, 25))
+    assert not ok
+    assert "POSTERIOR" in motivo
+
+
+def test_allows_games_within_the_trained_season():
+    from betbot.cli import coverage_check
+
+    ok, _ = coverage_check(Sport.NBA, "2026-03-01", date(2026, 4, 10))
+    assert ok
+
+
+def test_blocks_when_there_is_no_training_data():
+    from betbot.cli import coverage_check
+
+    ok, motivo = coverage_check(Sport.NBA, "", date(2026, 4, 10))
+    assert not ok
+    assert "datos de entrenamiento" in motivo
+
+
+def test_accepts_datetime_and_string_dates():
+    from datetime import datetime
+
+    from betbot.cli import coverage_check
+
+    dt = datetime(2026, 10, 25, 23, 0, tzinfo=UTC)
+    assert not coverage_check(Sport.NBA, "2026-06-14", dt)[0]
+    assert not coverage_check(Sport.NBA, "2026-06-14", "2026-10-25T23:00:00Z")[0]
+
+
+def test_malformed_event_date_does_not_block():
+    """Ante una fecha ilegible se deja pasar: la barrera esta para el caso
+    conocido, no para bloquear por ruido de parseo."""
+    from betbot.cli import coverage_check
+
+    assert coverage_check(Sport.NBA, "2026-06-14", "fecha-rara")[0]
+
+
+def test_mlb_boundary_is_march_not_january():
+    """Cada deporte tiene su arranque: en MLB, enero y marzo del mismo ano estan
+    a distinto lado de la frontera."""
+    from betbot.cli import coverage_check
+
+    assert coverage_check(Sport.MLB, "2025-09-28", date(2026, 1, 15))[0]
+    assert not coverage_check(Sport.MLB, "2025-09-28", date(2026, 4, 15))[0]

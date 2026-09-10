@@ -40,7 +40,7 @@ python -m betbot.cli demo                              # pipeline, datos sintét
 python -m betbot.cli ingest --sport nba --from 2000 --to 2015
 python -m betbot.cli backtest --sport nba              # walk-forward real
 python -m betbot.cli doctor                            # diagnostico
-pytest -q                                              # 328 tests
+pytest -q                                              # 334 tests
 ```
 
 El núcleo de modelado corre en stdlib puro. La única dependencia es `certifi`

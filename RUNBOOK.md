@@ -177,6 +177,38 @@ odds en vivo. Resultados posibles:
   actuando y que los nombres de equipo casen. Un modelo bien calibrado contra un
   mercado eficiente encuentra valor raramente.
 
+### La trampa de la pretemporada
+
+El caso real que motivó la barrera de cobertura: con datos hasta junio y
+partidos de octubre, el bot produjo **16 señales con EV de hasta +79,8%**, todas
+con el modelo más confiado que el mercado.
+
+No se parecía a un fallo. Se parecía exactamente a lo que uno querría ver si el
+bot funcionara.
+
+La causa: un Elo entrenado hasta junio no sabe **nada** del verano — draft,
+traspasos, agencia libre, lesiones. El mercado sí, y ya lo tiene en el precio.
+El modelo sigue creyendo que las plantillas son las de la final, y cuando su
+visión choca de frente con la del mercado, interpreta esa diferencia como valor.
+
+`scan` ahora bloquea esos partidos y te dice qué ingerir. La señal de alarma que
+debes memorizar: **muchas señales, EV enorme, todas en la misma dirección.**
+
+### Y aunque tengas datos de la temporada: espera
+
+Medido sobre 14.168 partidos, la ventaja del modelo según lo avanzada que esté
+la temporada:
+
+| Partidos jugados | Mejora sobre baseline |
+|---|---|
+| Primeros 100 | +0.0345 |
+| 101-300 | +0.0566 |
+| A partir de 301 | +0.0657 |
+
+**El modelo tiene la mitad de ventaja en las primeras semanas.** Los ratings
+todavía arrastran la temporada anterior y las plantillas han cambiado. Si vas a
+apostar de verdad, deja pasar el primer mes.
+
 Las señales se guardan en `data/betbot.db` y no se repiten en escaneos
 sucesivos.
 

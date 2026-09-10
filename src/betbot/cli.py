@@ -146,12 +146,31 @@ def cmd_scan(args: argparse.Namespace) -> int:
         print(err, file=sys.stderr)
         return 2
 
+    _, last_trained = model_freshness(sport, args.games_db)
+
     engine = EVEngine(settings.ev_config())
     preds = {}
+    fuera_de_cobertura = 0
+    motivo = ""
     for ev in events:
+        permitido, razon = coverage_check(sport, last_trained, ev.commence_time)
+        if not permitido and not args.force:
+            fuera_de_cobertura += 1
+            motivo = razon
+            continue
         p = model.predict(ev)
         if p is not None:
             preds[ev.event_id] = p
+
+    if fuera_de_cobertura:
+        print(
+            f"\nBLOQUEADOS {fuera_de_cobertura} de {len(events)} eventos:\n"
+            f"  {motivo}\n"
+            f"  Ingiere los resultados de la temporada en curso antes de escanear:\n"
+            f"    python -m betbot.cli ingest --sport {args.sport} --source hoopr "
+            f"--from <ano> --to <ano>\n"
+            f"  (--force ignora esta barrera; no lo uses para apostar de verdad)"
+        )
 
     if not preds:
         print("Ningun evento tiene modelo con datos suficientes. "
@@ -310,6 +329,46 @@ def load_trained_model(sport, games_db: str = "data/games.db"):
     return model, None
 
 
+def coverage_check(sport, last_trained: str, event_date) -> tuple[bool, str]:
+    """¿Puede el modelo opinar sobre un partido de esta fecha?
+
+    LA BARRERA MAS IMPORTANTE DEL SISTEMA. Un Elo entrenado hasta junio no sabe
+    NADA del verano: draft, traspasos, agencia libre, lesiones. El mercado si lo
+    sabe y ya lo ha puesto en el precio. El modelo, en cambio, sigue creyendo
+    que las plantillas son las de la final, y cuando su vision choca de frente
+    con la del mercado interpreta esa diferencia como VALOR.
+
+    Es el peor fallo posible del bot, porque no se parece a un fallo: produce
+    muchas senales, con EV enorme, todas en la misma direccion. Justo lo que uno
+    querria ver si funcionara.
+
+    Devuelve (permitido, motivo).
+    """
+    from datetime import date
+
+    if not last_trained:
+        return False, "el modelo no tiene datos de entrenamiento"
+
+    if hasattr(event_date, "date"):
+        event_day = event_date.date()
+    elif isinstance(event_date, str):
+        try:
+            event_day = date.fromisoformat(event_date[:10])
+        except ValueError:
+            return True, ""
+    else:
+        event_day = event_date
+
+    saltos = _season_starts_between(sport, last_trained, event_day)
+    if saltos:
+        return False, (
+            f"el partido es de una temporada POSTERIOR a los datos de "
+            f"entrenamiento (ultimo partido conocido: {last_trained}). El modelo "
+            f"desconoce el mercado de fichajes y sus predicciones no valen nada."
+        )
+    return True, ""
+
+
 def seasons_started_since(sport, last_game_date: str) -> int:
     """Cuantas temporadas han ARRANCADO desde el ultimo partido ingerido.
 
@@ -329,17 +388,32 @@ def seasons_started_since(sport, last_game_date: str) -> int:
     if window is None:
         return 0
 
-    (start_month, start_day), _, _ = window
+    return _season_starts_between(sport, last_game_date, date.today())
+
+
+def _season_starts_between(sport, desde: str, hasta) -> int:
+    """Cuantos arranques de temporada caen en (desde, hasta]."""
+    from datetime import date
+
     try:
-        last = date.fromisoformat(last_game_date)
+        from betbot.ingest.sources.espn import _SEASON_WINDOWS
+    except ImportError:
+        return 0
+
+    window = _SEASON_WINDOWS.get(sport)
+    if window is None:
+        return 0
+    (start_month, start_day), _, _ = window
+
+    try:
+        inicio = date.fromisoformat(str(desde)[:10])
     except (ValueError, TypeError):
         return 0
 
-    today = date.today()
     count = 0
-    for year in range(last.year, today.year + 1):
+    for year in range(inicio.year, hasta.year + 1):
         arranque = date(year, start_month, start_day)
-        if last < arranque <= today:
+        if inicio < arranque <= hasta:
             count += 1
     return count
 
@@ -526,6 +600,20 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             marca = "fuera de temporada"
         else:
             marca = "al dia"
+
+        # ¿Puede el modelo opinar sobre partidos de HOY? Es distinto de la
+        # frescura: en pretemporada los datos estan completos y aun asi el
+        # modelo no sabe nada de la temporada que viene.
+        from datetime import date as _date
+
+        permitido, _ = coverage_check(sport, last, _date.today())
+        if not permitido and days <= 365:
+            warnings.append(
+                f"{sport.name}: los datos llegan hasta {last}, pero ya empezo una "
+                f"temporada posterior. El modelo desconoce el mercado de fichajes: "
+                f"`scan` bloqueara esos partidos hasta que ingieras la temporada "
+                f"en curso."
+            )
         print(f"  {sport.name:<16} ultimo {last} ({days}d, {marca}) | {estado}")
 
     if not any_data:
@@ -713,6 +801,9 @@ def main(argv: list[str] | None = None) -> int:
     p_scan.add_argument("--sport", default="nba", help=f"uno de {sorted(SPORT_ALIASES)}")
     p_scan.add_argument("--games-db", default="data/games.db",
                         help="BD de resultados historicos para entrenar el modelo")
+    p_scan.add_argument("--force", action="store_true",
+                        help="ignora la barrera de cobertura de temporada. Solo "
+                             "para depurar: las senales que produce no valen nada")
     p_scan.set_defaults(func=cmd_scan)
 
     p_ing = sub.add_parser("ingest", help="descarga resultados historicos")
