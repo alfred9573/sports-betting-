@@ -933,11 +933,36 @@ def cmd_survey(args: argparse.Namespace) -> int:
         print(f"Error consultando odds: {e}", file=sys.stderr)
         return 1
 
+    n_regiones = len([r for r in settings.regions.split(",") if r.strip()])
+    coste = len(mercados) * n_regiones
     print(f"{len(events)} eventos | cuota restante: {provider.credits_remaining}")
-    print(f"(este escaneo costo {len(mercados)} creditos: la API cobra por mercado)\n")
+    print(
+        f"(este escaneo costo {coste} creditos: {len(mercados)} mercados x "
+        f"{n_regiones} region(es). La API multiplica por AMBOS.)\n"
+    )
 
     if not events:
         print("Sin eventos. Prueba otro deporte o vuelve en temporada.")
+        return 0
+
+    # FILTRO TEMPORAL. Un feed de NFL en septiembre trae la temporada entera.
+    # Las casas blandas publican lineas de partidos a semanas vista con margenes
+    # anchos, limites ridiculos y sin haberlas ajustado: ahi SIEMPRE parecera
+    # que hay valor, y no lo hay. Solo cuenta lo que empieza pronto.
+    from datetime import UTC, datetime, timedelta
+
+    limite = datetime.now(UTC) + timedelta(hours=args.horas)
+    proximos = [e for e in events if e.commence_time <= limite]
+    if len(proximos) < len(events):
+        print(
+            f"De {len(events)} eventos, {len(proximos)} empiezan en las proximas "
+            f"{args.horas}h. El resto se ignora: las lineas a semanas vista tienen\n"
+            f"margenes anchos y limites minimos, y producen 'valor' que no existe.\n"
+        )
+    events = proximos
+    if not events:
+        print(f"Ningun partido empieza en las proximas {args.horas}h.")
+        print("Sube --horas o prueba cuando haya jornada cerca.")
         return 0
 
     motor = LineShopEngine(LineShopConfig(min_ev=-99, min_edge=-99))
@@ -1004,6 +1029,11 @@ def cmd_survey(args: argparse.Namespace) -> int:
         print("\nQue casas se quedan atras (EV >= 2%):")
         for libro, n in sorted(por_libro.items(), key=lambda x: -x[1])[:8]:
             print(f"  {libro:<20} {n}")
+        print(
+            "\n  COMPRUEBA QUE PUEDES APOSTAR AHI. Encontrar valor en una casa\n"
+            "  donde no tienes cuenta —o que no acepta tu pais— no es una\n"
+            "  oportunidad, es un ejercicio teorico."
+        )
 
     n_util = sum(1 for _, e, _ in todas if e >= 0.02)
 
@@ -1216,6 +1246,9 @@ def main(argv: list[str] | None = None) -> int:
     p_sv = sub.add_parser("survey",
                           help="mide si existe oportunidad de lineshop (3 creditos)")
     p_sv.add_argument("--sport", default="nfl", help=f"uno de {sorted(SPORT_ALIASES)}")
+    p_sv.add_argument("--horas", type=int, default=48, metavar="N",
+                      help="solo partidos que empiecen en las proximas N horas "
+                           "(def. 48). Las lineas lejanas producen valor ficticio")
     p_sv.add_argument("--log", default=None, metavar="RUTA",
                       help="acumula el resultado en un CSV para ver la serie, "
                            "no solo la foto (ej: data/survey.csv)")

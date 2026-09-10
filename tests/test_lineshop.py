@@ -221,7 +221,7 @@ def test_survey_log_accumulates_rows(tmp_path, monkeypatch, capsys):
     import betbot.odds.the_odds_api as api
 
     monkeypatch.setattr(api, "TheOddsAPI", FakeProvider)
-    args = argparse.Namespace(sport="nba", log=str(log))
+    args = argparse.Namespace(sport="nba", log=str(log), horas=48)
 
     assert cli.cmd_survey(args) == 0
     assert cli.cmd_survey(args) == 0
@@ -253,5 +253,53 @@ def test_survey_without_log_does_not_write(tmp_path, monkeypatch):
     import betbot.odds.the_odds_api as api
 
     monkeypatch.setattr(api, "TheOddsAPI", FakeProvider)
-    assert cli.cmd_survey(argparse.Namespace(sport="nba", log=None)) == 0
+    assert cli.cmd_survey(argparse.Namespace(sport="nba", log=None, horas=48)) == 0
     assert not list(tmp_path.iterdir())
+
+
+def test_survey_ignores_far_future_games(tmp_path, monkeypatch, capsys):
+    """Un feed de NFL en septiembre trae la temporada entera. Las casas publican
+    lineas de partidos a semanas vista con margenes anchos y limites minimos:
+    ahi SIEMPRE parece que hay valor y no lo hay. Contarlas inflaria el
+    diagnostico justo en la direccion que lleva a pagar una suscripcion."""
+    import argparse
+
+    from betbot import cli
+
+    monkeypatch.setenv("ODDS_API_KEY", "fake")
+
+    cerca = Event("cerca", Sport.NFL, AHORA + timedelta(hours=5), "H", "A", books=(
+        BookMarket("pinnacle", Market.MONEYLINE,
+                   (Outcome("H", 1.60), Outcome("A", 2.45)), AHORA),
+        BookMarket("draftkings", Market.MONEYLINE,
+                   (Outcome("H", 1.75), Outcome("A", 2.15)), AHORA),
+    ))
+    lejos = Event("lejos", Sport.NFL, AHORA + timedelta(days=40), "H2", "A2", books=(
+        BookMarket("pinnacle", Market.MONEYLINE,
+                   (Outcome("H2", 1.60), Outcome("A2", 2.45)), AHORA),
+        BookMarket("draftkings", Market.MONEYLINE,
+                   (Outcome("H2", 2.50), Outcome("A2", 1.55)), AHORA),
+    ))
+
+    class FakeProvider:
+        credits_remaining = 400
+
+        def __init__(self, *a, **kw):
+            pass
+
+        def fetch_events(self, sport, markets):
+            return [cerca, lejos]
+
+    import betbot.odds.the_odds_api as api
+
+    monkeypatch.setattr(api, "TheOddsAPI", FakeProvider)
+    log = tmp_path / "s.csv"
+    cli.cmd_survey(argparse.Namespace(sport="nfl", log=str(log), horas=48))
+
+    salida = capsys.readouterr().out
+    assert "1 empiezan en las proximas 48h" in salida
+
+    import csv
+
+    fila = next(iter(csv.DictReader(log.open())))
+    assert int(fila["eventos"]) == 1

@@ -411,7 +411,7 @@ Para una sola medición suelta:
 python -m betbot.cli survey --sport nfl --log data/survey.csv
 ```
 
-Cuesta **3 créditos** y responde con datos si existe la oportunidad que
+Cuesta **3 créditos por región configurada** (con `us,eu` son 6) y responde con datos si existe la oportunidad que
 `lineshop` busca: cuántas casas cotizan, si hay alguna sharp de referencia,
 cuántas discrepancias hay ahora mismo y de qué tamaño.
 
@@ -425,6 +425,15 @@ Cómo interpretarlo:
   entre casas, no una ventaja explotable.
 
 **Es una foto, no una película.** De ahí el script de arriba.
+
+### Dos filtros que evitan diagnósticos falsos
+
+**Partidos lejanos.** Un feed de NFL en septiembre trae la temporada entera. Las
+casas publican líneas a semanas vista con márgenes anchos y límites mínimos: ahí
+*siempre* parecerá que hay valor, y no lo hay. `survey` solo cuenta lo que empieza
+en las próximas 48h (`--horas` lo ajusta).
+
+**Casas inaccesibles.** Ver abajo.
 
 ### Y una comprobación que decide si algo de esto te sirve
 
