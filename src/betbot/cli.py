@@ -991,12 +991,42 @@ def cmd_survey(args: argparse.Namespace) -> int:
         )
         return 0
 
+    mias = {c.strip().lower() for c in (args.casas or "").split(",") if c.strip()}
     print(f"Libros presentes: {len(libros_vistos)}")
-    print(f"  {', '.join(sorted(libros_vistos)[:12])}\n")
+    for nombre in sorted(libros_vistos):
+        marca = "  <-- TUYA" if nombre.lower() in mias else ""
+        print(f"  {nombre}{marca}")
+    if mias:
+        faltan = mias - {b.lower() for b in libros_vistos}
+        if faltan:
+            print(
+                f"\n  NO APARECEN en el feed: {', '.join(sorted(faltan))}\n"
+                f"  No podras actuar sobre lo que se detecte en otras casas."
+            )
+    print()
 
     if not todas:
         print("Ninguna discrepancia medible. La oportunidad no existe ahora mismo.")
         return 0
+
+    # SOLO CUENTAN LAS CASAS DONDE PUEDES APOSTAR. Una oportunidad en un libro
+    # sin cuenta no es una oportunidad; incluirla infla el diagnostico justo en
+    # la direccion que lleva a pagar una suscripcion.
+    if mias:
+        antes = len(todas)
+        todas = [t for t in todas if t[2].lower() in mias]
+        print(
+            f"Filtrado a TUS casas: {len(todas)} de {antes} discrepancias caen "
+            f"donde puedes apostar.\n"
+        )
+        if not todas:
+            print(
+                "NINGUNA discrepancia cae en tus casas. Lo que se detecta esta en\n"
+                "libros que no puedes usar, asi que no es accionable. Si esto se\n"
+                "repite, la estrategia no te sirve — no por los modelos, sino por\n"
+                "donde puedes apostar."
+            )
+            return 0
 
     # Solo se cuentan discrepancias FAVORABLES: que una casa pague peor que la
     # sharp no es una oportunidad, es simplemente un mal precio que se ignora.
@@ -1246,6 +1276,10 @@ def main(argv: list[str] | None = None) -> int:
     p_sv = sub.add_parser("survey",
                           help="mide si existe oportunidad de lineshop (3 creditos)")
     p_sv.add_argument("--sport", default="nfl", help=f"uno de {sorted(SPORT_ALIASES)}")
+    p_sv.add_argument("--casas", default=None, metavar="LISTA",
+                      help="casas donde PUEDES apostar, separadas por coma "
+                           "(ej: bet365,betmgm). Filtra el diagnostico a lo "
+                           "accionable de verdad")
     p_sv.add_argument("--horas", type=int, default=48, metavar="N",
                       help="solo partidos que empiecen en las proximas N horas "
                            "(def. 48). Las lineas lejanas producen valor ficticio")

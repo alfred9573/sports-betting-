@@ -221,7 +221,7 @@ def test_survey_log_accumulates_rows(tmp_path, monkeypatch, capsys):
     import betbot.odds.the_odds_api as api
 
     monkeypatch.setattr(api, "TheOddsAPI", FakeProvider)
-    args = argparse.Namespace(sport="nba", log=str(log), horas=48)
+    args = argparse.Namespace(sport="nba", log=str(log), horas=48, casas=None)
 
     assert cli.cmd_survey(args) == 0
     assert cli.cmd_survey(args) == 0
@@ -253,7 +253,7 @@ def test_survey_without_log_does_not_write(tmp_path, monkeypatch):
     import betbot.odds.the_odds_api as api
 
     monkeypatch.setattr(api, "TheOddsAPI", FakeProvider)
-    assert cli.cmd_survey(argparse.Namespace(sport="nba", log=None, horas=48)) == 0
+    assert cli.cmd_survey(argparse.Namespace(sport="nba", log=None, horas=48, casas=None)) == 0
     assert not list(tmp_path.iterdir())
 
 
@@ -294,7 +294,7 @@ def test_survey_ignores_far_future_games(tmp_path, monkeypatch, capsys):
 
     monkeypatch.setattr(api, "TheOddsAPI", FakeProvider)
     log = tmp_path / "s.csv"
-    cli.cmd_survey(argparse.Namespace(sport="nfl", log=str(log), horas=48))
+    cli.cmd_survey(argparse.Namespace(sport="nfl", log=str(log), horas=48, casas=None))
 
     salida = capsys.readouterr().out
     assert "1 empiezan en las proximas 48h" in salida
@@ -303,3 +303,76 @@ def test_survey_ignores_far_future_games(tmp_path, monkeypatch, capsys):
 
     fila = next(iter(csv.DictReader(log.open())))
     assert int(fila["eventos"]) == 1
+
+
+def test_survey_filters_to_usable_bookmakers(monkeypatch, capsys):
+    """Una oportunidad en una casa donde no tienes cuenta no es una
+    oportunidad. Contarla infla el diagnostico justo en la direccion que lleva
+    a pagar una suscripcion."""
+    import argparse
+
+    from betbot import cli
+
+    monkeypatch.setenv("ODDS_API_KEY", "fake")
+    ev = Event("e1", Sport.NFL, AHORA + timedelta(hours=5), "Chiefs", "Bills", books=(
+        BookMarket("pinnacle", Market.MONEYLINE,
+                   (Outcome("Chiefs", 1.60), Outcome("Bills", 2.45)), AHORA),
+        BookMarket("bet365", Market.MONEYLINE,
+                   (Outcome("Chiefs", 1.62), Outcome("Bills", 2.40)), AHORA),
+        BookMarket("unibet_se", Market.MONEYLINE,
+                   (Outcome("Chiefs", 1.80), Outcome("Bills", 2.10)), AHORA),
+    ))
+
+    class FakeProvider:
+        credits_remaining = 400
+
+        def __init__(self, *a, **kw):
+            pass
+
+        def fetch_events(self, sport, markets):
+            return [ev]
+
+    import betbot.odds.the_odds_api as api
+
+    monkeypatch.setattr(api, "TheOddsAPI", FakeProvider)
+
+    # La oportunidad esta en unibet_se; con --casas bet365 no debe contarse
+    cli.cmd_survey(argparse.Namespace(sport="nfl", log=None, horas=48, casas="bet365"))
+    salida = capsys.readouterr().out
+    assert "NINGUNA discrepancia cae en tus casas" in salida
+
+    # Sin filtro, la misma medicion si la reporta
+    cli.cmd_survey(argparse.Namespace(sport="nfl", log=None, horas=48, casas=None))
+    assert "oportunidades" in capsys.readouterr().out.lower()
+
+
+def test_survey_warns_about_missing_bookmakers(monkeypatch, capsys):
+    """Si una casa tuya no esta en el feed, hay que decirlo: no podras actuar
+    sobre lo que se detecte en otras."""
+    import argparse
+
+    from betbot import cli
+
+    monkeypatch.setenv("ODDS_API_KEY", "fake")
+    ev = Event("e1", Sport.NFL, AHORA + timedelta(hours=5), "H", "A", books=(
+        BookMarket("pinnacle", Market.MONEYLINE,
+                   (Outcome("H", 1.60), Outcome("A", 2.45)), AHORA),
+    ))
+
+    class FakeProvider:
+        credits_remaining = 400
+
+        def __init__(self, *a, **kw):
+            pass
+
+        def fetch_events(self, sport, markets):
+            return [ev]
+
+    import betbot.odds.the_odds_api as api
+
+    monkeypatch.setattr(api, "TheOddsAPI", FakeProvider)
+    cli.cmd_survey(argparse.Namespace(sport="nfl", log=None, horas=48,
+                                      casas="bet365,caliente"))
+    salida = capsys.readouterr().out
+    assert "NO APARECEN en el feed" in salida
+    assert "bet365" in salida and "caliente" in salida

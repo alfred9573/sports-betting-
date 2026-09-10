@@ -433,7 +433,20 @@ casas publican líneas a semanas vista con márgenes anchos y límites mínimos:
 *siempre* parecerá que hay valor, y no lo hay. `survey` solo cuenta lo que empieza
 en las próximas 48h (`--horas` lo ajusta).
 
-**Casas inaccesibles.** Ver abajo.
+**Casas inaccesibles.** Pasa la lista de donde puedes apostar de verdad:
+
+```bash
+python -m betbot.cli survey --sport nfl --casas bet365,betmgm --log data/survey.csv
+```
+
+El survey marca cuáles de tus casas aparecen en el feed, avisa de las que
+faltan, y **cuenta solo las oportunidades que caen donde puedes actuar**. Sin
+esto el diagnóstico sale inflado justo en la dirección que lleva a pagar una
+suscripción.
+
+Si sale repetidamente «NINGUNA discrepancia cae en tus casas», la estrategia no
+te sirve — y no por los modelos, sino por dónde puedes apostar. Es un motivo
+perfectamente válido para cerrar el proyecto.
 
 ### Y una comprobación que decide si algo de esto te sirve
 
