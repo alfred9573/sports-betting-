@@ -365,8 +365,40 @@ desfasada se cierra en minutos.
 
 ## 5c. ¿Merece la pena pagar más cuota? Mídelo antes
 
+### Antes de correrlo: comprueba que hay un libro sharp
+
+La estrategia compara casas blandas contra una **sharp** (Pinnacle, Betfair,
+Circa). Sin esa referencia no hay nada que medir: comparar dos blandas entre sí
+no dice cuál tiene razón.
+
+Pinnacle suele estar en la región `eu`, no en `us`. En `.env`:
+
+```ini
+ODDS_REGIONS=eu
+```
+
+O `us,eu` para ver también las casas de cara al público estadounidense — **pero
+ojo: cada región multiplica el coste**. Con 3 mercados y 2 regiones son 6
+créditos por escaneo en vez de 3.
+
+### Una medición no dice nada. Corre la serie
+
 ```bash
-python -m betbot.cli survey --sport nfl
+bash scripts/survey-dia.sh nfl 12 30
+```
+
+12 mediciones cada 30 minutos (~36 créditos, ~6 horas). Acumula todo en
+`data/survey.csv` y al terminar te da el veredicto:
+
+- **Sin libro sharp en ninguna** → revisa `ODDS_REGIONS`, no has medido nada
+- **Cero oportunidades en todas** → no hay nada que capturar, ahórrate la cuota
+- **Oportunidades en más de la mitad** → apunta a algo estructural
+- **Intermitentes** → ruido de sincronización, o ventana real pero estrecha
+
+Para una sola medición suelta:
+
+```bash
+python -m betbot.cli survey --sport nfl --log data/survey.csv
 ```
 
 Cuesta **3 créditos** y responde con datos si existe la oportunidad que
@@ -382,12 +414,17 @@ Cómo interpretarlo:
 - **Aparecen y desaparecen sin patrón** → estás viendo ruido de sincronización
   entre casas, no una ventaja explotable.
 
-**Es una foto, no una película.** Córrelo varias veces a lo largo de un día antes
-de sacar conclusiones. Con 500 créditos gratis te caben ~160 fotos: de sobra para
-decidir con evidencia en vez de con intuición.
+**Es una foto, no una película.** De ahí el script de arriba.
 
-Si no aparece ninguna casa sharp, prueba `ODDS_REGIONS=eu,uk` en `.env` — es
-donde suele estar Pinnacle.
+### Y una comprobación que decide si algo de esto te sirve
+
+Mira la lista de **casas presentes** que imprime el survey. Si las casas donde
+tú puedes apostar de verdad no están ahí, encontrarás valor en sitios que no
+puedes usar. The Odds API cubre regiones `us`, `us2`, `uk`, `eu` y `au`; si
+apuestas en casas locales de otro mercado, puede que no aparezcan.
+
+Compruébalo antes de pagar nada: es la diferencia entre una estrategia
+accionable y un ejercicio teórico.
 
 ## 5d. La cuenta de la cuota
 

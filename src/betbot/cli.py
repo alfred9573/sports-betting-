@@ -1006,6 +1006,37 @@ def cmd_survey(args: argparse.Namespace) -> int:
             print(f"  {libro:<20} {n}")
 
     n_util = sum(1 for _, e, _ in todas if e >= 0.02)
+
+    # Registro acumulado: una foto no dice nada, la serie si. Sin esto hay que
+    # comparar quince salidas a ojo, que es como no medir.
+    if args.log:
+        from datetime import datetime
+        from pathlib import Path
+
+        ruta = Path(args.log)
+        ruta.parent.mkdir(parents=True, exist_ok=True)
+        nuevo = not ruta.exists()
+        mejor = max((e for _, e, _ in todas), default=0.0)
+        with ruta.open("a") as fh:
+            if nuevo:
+                fh.write("momento,deporte,eventos,con_sharp,libros,oportunidades,mejor_ev\n")
+            fh.write(
+                f"{datetime.now().isoformat(timespec='seconds')},{args.sport},"
+                f"{len(events)},{con_sharp},{len(libros_vistos)},{n_util},"
+                f"{mejor:.4f}\n"
+            )
+        print(f"\nAnotado en {ruta}")
+
+        lineas = ruta.read_text().strip().splitlines()[1:]
+        if len(lineas) > 1:
+            oportunidades = [int(x.split(",")[5]) for x in lineas]
+            con_algo = sum(1 for x in oportunidades if x > 0)
+            print(
+                f"Historico: {len(lineas)} mediciones | "
+                f"{con_algo} con alguna oportunidad ({con_algo / len(lineas):.0%}) | "
+                f"media {sum(oportunidades) / len(oportunidades):.1f} por escaneo"
+            )
+
     print("\n" + "=" * 62)
     print("QUE SIGNIFICA ESTO PARA DECIDIR SI PAGAR UN PLAN")
     print("=" * 62)
@@ -1185,6 +1216,9 @@ def main(argv: list[str] | None = None) -> int:
     p_sv = sub.add_parser("survey",
                           help="mide si existe oportunidad de lineshop (3 creditos)")
     p_sv.add_argument("--sport", default="nfl", help=f"uno de {sorted(SPORT_ALIASES)}")
+    p_sv.add_argument("--log", default=None, metavar="RUTA",
+                      help="acumula el resultado en un CSV para ver la serie, "
+                           "no solo la foto (ej: data/survey.csv)")
     p_sv.set_defaults(func=cmd_survey)
 
     p_tg = sub.add_parser("test-telegram", help="comprueba las alertas de Telegram")

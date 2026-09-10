@@ -193,3 +193,65 @@ def test_negative_ev_never_becomes_a_signal():
     ev = evento(("pinnacle", 1.60, 2.45), ("draftkings", 1.50, 2.60))
     abierto = LineShopEngine(LineShopConfig(min_ev=-99, min_edge=-99))
     assert all(s.ev > 0 for s in abierto.evaluate(ev))
+
+
+# ---------- registro acumulado del survey ----------
+
+def test_survey_log_accumulates_rows(tmp_path, monkeypatch, capsys):
+    """Una sola medicion no dice nada porque las lineas desfasadas duran
+    minutos: lo informativo es la SERIE. Sin registro habria que comparar
+    quince salidas a ojo, que es como no medir."""
+    import argparse
+    import csv
+
+    from betbot import cli
+
+    monkeypatch.setenv("ODDS_API_KEY", "fake")
+    log = tmp_path / "survey.csv"
+
+    class FakeProvider:
+        credits_remaining = 400
+
+        def __init__(self, *a, **kw):
+            pass
+
+        def fetch_events(self, sport, markets):
+            return [evento(("pinnacle", 1.60, 2.45), ("draftkings", 1.75, 2.15))]
+
+    import betbot.odds.the_odds_api as api
+
+    monkeypatch.setattr(api, "TheOddsAPI", FakeProvider)
+    args = argparse.Namespace(sport="nba", log=str(log))
+
+    assert cli.cmd_survey(args) == 0
+    assert cli.cmd_survey(args) == 0
+
+    filas = list(csv.DictReader(log.open()))
+    assert len(filas) == 2
+    assert filas[0]["deporte"] == "nba"
+    assert int(filas[0]["oportunidades"]) >= 1
+    # a partir de la segunda medicion debe resumir la serie
+    assert "Historico" in capsys.readouterr().out
+
+
+def test_survey_without_log_does_not_write(tmp_path, monkeypatch):
+    import argparse
+
+    from betbot import cli
+
+    monkeypatch.setenv("ODDS_API_KEY", "fake")
+
+    class FakeProvider:
+        credits_remaining = 400
+
+        def __init__(self, *a, **kw):
+            pass
+
+        def fetch_events(self, sport, markets):
+            return []
+
+    import betbot.odds.the_odds_api as api
+
+    monkeypatch.setattr(api, "TheOddsAPI", FakeProvider)
+    assert cli.cmd_survey(argparse.Namespace(sport="nba", log=None)) == 0
+    assert not list(tmp_path.iterdir())
