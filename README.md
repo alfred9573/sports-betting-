@@ -62,6 +62,7 @@ models/       Un módulo por deporte, todos con la misma interfaz ProbabilityMod
   nba.py        Elo + encogimiento
   nfl.py        Elo con margen de victoria
   pitchers.py   Ratings de abridor MLB (medido: aporta ~nada, ver abajo)
+  totals.py     Puntuación total para mercados over/under
   mlb.py        Elo + Pythagorean + ajuste de abridor + techo de probabilidad
   soccer.py     Poisson bivariado con corrección Dixon-Coles
 ev/           Motor de EV, Kelly fraccionado y filtros de riesgo
@@ -112,6 +113,42 @@ realidad es 45,5%: el modelo es **menos** fiable justo donde cree tener más
 ventaja, porque apostar selecciona los partidos donde se equivoca.
 
 Reproducible: `betbot simulate`.
+
+### Over/under y hándicap: el mercado los pone en 50/50 a propósito
+
+Probado también sobre datos reales (5.107 partidos con línea de totales y sus
+precios):
+
+| Predictor del over/under | Brier |
+|---|---|
+| **Baseline (predecir siempre 49,6%)** | **0.2500** |
+| Mercado | 0.2501 |
+| Modelo de totales | 0.2568 |
+
+**El mercado no predice mejor que una moneda al aire** — y es deliberado: la casa
+coloca la línea exactamente donde el over/under es 50/50. Lo mismo en hándicap:
+el local cubre el 49,0% de las veces.
+
+Eso explica por qué over/under *se siente* más fácil de ganar: aciertas la mitad
+de las veces, en vez del 30% que aciertas apostando a underdogs. Pero a -110
+necesitas el **52,4%** solo para no perder, así que acertar la mitad pierde un
+4,5% del dinero apostado de forma constante.
+
+**Tasa de acierto y rentabilidad son cosas distintas.** Acertar el 30% a cuota
+4.00 da +20% de ROI; acertar el 50% a -110 da -4,5%.
+
+Y la consecuencia práctica en estos mercados:
+
+| Precio | ROI acertando 50% |
+|---|---|
+| -115 | -6,5% |
+| -110 | -4,5% |
+| +100 | 0,0% |
+| +105 | **+2,5%** |
+
+En un mercado 50/50 **el precio lo es todo**: conseguir +105 en vez de -110
+convierte una pérdida en ganancia sin predecir nada. La ventaja que daría un
+modelo perfecto ahí es cero, porque el mercado ya está en 50/50.
 
 ### La consecuencia estratégica
 
