@@ -139,7 +139,7 @@ de la que no tiene datos (la barrera de cobertura lo bloquea). Estado real:
 | **Premier League** | `openfootball` | ✅ sí |
 | La Liga, Serie A, Bundesliga, Ligue 1 | `openfootball` | ⚠️ sin preset calibrado |
 | NBA | `hoopr` (hasta jun 2026) | ⛔ hasta que arranque y se juegue |
-| NFL | `nflverse` | ⛔ hasta que se jueguen partidos |
+| **NFL** | `nflverse` | ⚠️ desde la semana 2 (ver 3d) |
 | **Liga MX** | ninguna encontrada | ⛔ ver abajo |
 | MLB | Retrosheet llega a 2025 | ⛔ falta 2026 |
 
@@ -165,6 +165,43 @@ baseline de 0.233.
 se solapan con `openfootball` y los partidos entrarían dos veces — cada resultado
 contaría el doble y el modelo exageraría las diferencias entre equipos. `ingest`
 te avisa si lo detecta; lo más limpio es borrar la BD y reingerir con una sola.
+
+## 3d. NFL: arranca en la semana 2
+
+`nflverse` se actualiza en cuanto terminan los partidos, así que la NFL es
+operable casi desde el principio de temporada. La secuencia:
+
+```bash
+# ahora: base historica
+python -m betbot.cli ingest --sport nfl --from 2010 --to 2026
+
+# cada martes, tras la jornada
+python -m betbot.cli ingest --sport nfl --from 2026 --to 2026 --force
+python -m betbot.cli scan --sport nfl
+```
+
+La barrera de cobertura bloquea la semana 1 —el modelo no tiene ni un partido de
+la temporada nueva— y **se levanta sola** en cuanto ingieres los primeros
+resultados. No hay que tocar nada.
+
+### La NFL aguanta mejor el arranque que la NBA
+
+Medido sobre 4.363 partidos (2010-2026):
+
+| Tramo | NFL | NBA (comparación) |
+|---|---|---|
+| Inicio de temporada | **+0.0456** (74% de su ventaja) | +0.0345 (52%) |
+| Media temporada | +0.0481 | +0.0566 |
+| Tramo final | +0.0616 | +0.0657 |
+
+La NFL pierde bastante menos ventaja al principio, y su sesgo de calibración en
+las primeras jornadas es de solo +0,63%. La razón probable: las plantillas de
+fútbol americano son más estables de un año a otro en relación a su impacto, y
+la regresión a la media del 33% ya absorbe buena parte del cambio.
+
+**Conclusión práctica: en NFL no hace falta esperar al mes de temporada** como
+recomendé para la NBA. Desde la semana 2 el modelo ya rinde a tres cuartos de su
+capacidad.
 
 ## 3c. Datos recientes de NBA
 

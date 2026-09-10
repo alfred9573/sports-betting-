@@ -282,7 +282,7 @@ y medio. El cliente usa un mercado y una región por defecto, y expone
 | Retrosheet (espejo Chadwick) | MLB | 1871-2025 | ✅ validada, 0 descartes |
 | FiveThirtyEight Elo | NBA | 1946-2015 | ✅ validada, 0 descartes |
 | hoopR-nba-data (espejo ESPN) | NBA | 2002-actual | ✅ validada, 0 descartes |
-| nflverse/nfldata | NFL | 1999-2025 | ✅ validada, 0 descartes |
+| nflverse/nfldata | NFL | 1999-actual | ✅ validada, se actualiza en temporada |
 | engsoccerdata | Fútbol inglés | 1888-2016 | ✅ validada, 0 descartes |
 | footballcsv/mexico | Liga MX | 2018-2025 | ✅ validada, pero **sin temporada actual** |
 | openfootball/football.json | EPL, La Liga, Serie A, Bundesliga, Ligue 1 | 2016-actual | ✅ validada, temporada en curso |
