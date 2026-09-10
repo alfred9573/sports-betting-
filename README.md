@@ -65,18 +65,69 @@ models/       Un módulo por deporte, todos con la misma interfaz ProbabilityMod
   mlb.py        Elo + Pythagorean + ajuste de abridor + techo de probabilidad
   soccer.py     Poisson bivariado con corrección Dixon-Coles
 ev/           Motor de EV, Kelly fraccionado y filtros de riesgo
+  lineshop.py   Valor por desacuerdo entre casas, sin modelo propio
 backtest/     Brier, log-loss, calibración, CLV, ROI con error típico
+  strategy.py     Simulación de la estrategia contra odds reales
   walkforward.py  Validación sin fuga temporal (binaria y multiclase)
   multiclass.py   RPS, log-loss y calibración por clase para 1X2
 alerts/       Consola y Telegram
 storage.py    SQLite: señales, odds de cierre, liquidación
 closing.py    Captura de línea de cierre (el job que hace medible el CLV)
 cli.py        doctor / validate-source / demo / ingest / backtest /
-              scan / close / report
+              simulate / scan / close / report
 ```
 
 El motor de EV no sabe nada de baloncesto, béisbol ni fútbol: solo consume
 `ModelProbabilities`. Añadir un deporte es escribir un módulo nuevo en `models/`.
+
+## ¿Le gana al mercado? No. (medido)
+
+Esta es la pregunta que importa, y durante casi todo el proyecto se estuvo
+respondiendo la equivocada. Las tablas de abajo miden si el modelo predice mejor
+que **la tasa base** — un rival trivial. El rival real es el mercado.
+
+`nflverse` publica moneylines de cierre históricas, así que se pudo simular el
+bot completo sobre 5.295 partidos con precios reales:
+
+```
+Apuestas    4.020 de 5.295 partidos (75,9% del calendario)
+ROI         -1,36%
+Bankroll    1000 → 31,53
+Peor racha  99,1% de caída
+```
+
+Validado con tres controles antes de creérselo: apostador aleatorio -2,51%
+(≈ el margen), siempre-al-favorito -4,75%, oráculo +88,80%.
+
+**Por qué falla**, sobre los mismos 5.166 partidos:
+
+| | Brier | Log-loss |
+|---|---|---|
+| **Mercado** | **0.2110** | **0.6090** |
+| Modelo | 0.2209 | 0.6316 |
+
+El mercado predice estrictamente mejor. Y donde más discrepan (>20pp), que es
+donde el bot apuesta más fuerte, el modelo dice 54,2%, el mercado 49,8% y la
+realidad es 45,5%: el modelo es **menos** fiable justo donde cree tener más
+ventaja, porque apostar selecciona los partidos donde se equivoca.
+
+Reproducible: `betbot simulate`.
+
+### La consecuencia estratégica
+
+Batir una línea de cierre líquida es competir contra equipos que se dedican a
+eso a tiempo completo. El edge realista para un individuo es otro:
+
+**que una casa blanda tarde en mover su línea cuando la sharp ya se movió.**
+
+Eso no exige predecir mejor que el mercado — exige cobrar la diferencia entre dos
+precios publicados a la vez por dos sitios distintos. Implementado en
+`ev/lineshop.py`, se usa con `betbot scan --strategy lineshop` y no necesita
+modelo ni datos históricos.
+
+**No se ha podido backtestear**: haría falta histórico de odds de varias casas
+simultáneas y no existe gratis. La única forma de saber si funciona es medir CLV
+en vivo, que es exactamente para lo que está la captura de cierres.
 
 ## Resultados medidos
 

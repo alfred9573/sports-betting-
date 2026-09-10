@@ -152,6 +152,31 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
     print(f"{len(events)} eventos obtenidos. Cuota restante: {provider.credits_remaining}")
 
+    # ESTRATEGIA lineshop: no usa modelo propio. La referencia es el precio de
+    # los libros sharp, asi que no le afecta la barrera de cobertura de
+    # temporada ni necesita datos historicos.
+    if args.strategy == "lineshop":
+        from betbot.ev.lineshop import LineShopConfig, LineShopEngine
+
+        motor = LineShopEngine(LineShopConfig(
+            bankroll=settings.bankroll,
+            kelly_fraction=settings.kelly_fraction,
+            max_stake_pct=settings.max_stake_pct,
+        ))
+        senales = motor.scan(events)
+        almacen = SignalStore(settings.db_path)
+        nuevas = [x for x in senales
+                  if not almacen.already_alerted(x.event_id, x.market.value, x.selection)]
+        for alerter in _alerters(settings):
+            alerter.send(nuevas)
+        almacen.save_many(nuevas)
+        if not senales:
+            print(
+                "Sin desacuerdos suficientes entre casas. Es lo normal: la "
+                "ventana se cierra en minutos."
+            )
+        return 0
+
     model, err = load_trained_model(sport, args.games_db)
     if model is None:
         print(err, file=sys.stderr)
@@ -917,6 +942,10 @@ def main(argv: list[str] | None = None) -> int:
     p_scan.add_argument("--sport", default="nba", help=f"uno de {sorted(SPORT_ALIASES)}")
     p_scan.add_argument("--games-db", default="data/games.db",
                         help="BD de resultados historicos para entrenar el modelo")
+    p_scan.add_argument("--strategy", default="model", choices=["model", "lineshop"],
+                        help="'model' compara contra tu modelo propio; 'lineshop' "
+                             "busca casas blandas que se quedaron atras del precio "
+                             "sharp, sin usar modelo")
     p_scan.add_argument("--force", action="store_true",
                         help="ignora la barrera de cobertura de temporada. Solo "
                              "para depurar: las senales que produce no valen nada")
