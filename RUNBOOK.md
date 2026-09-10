@@ -384,11 +384,21 @@ créditos por escaneo en vez de 3.
 ### Una medición no dice nada. Corre la serie
 
 ```bash
-bash scripts/survey-dia.sh nfl 12 30
+bash scripts/survey-dia.sh nfl 12 30 --fondo
 ```
 
-12 mediciones cada 30 minutos (~36 créditos, ~6 horas). Acumula todo en
-`data/survey.csv` y al terminar te da el veredicto:
+Un comando y te olvidas: arranca en segundo plano, sobrevive a que cierres la
+terminal y en macOS impide que el equipo se duerma a mitad — que es la causa
+habitual de que una serie larga aparezca truncada sin explicación.
+
+12 mediciones cada 30 minutos (~36 créditos, ~6 horas). Puedes consultar el
+avance en cualquier momento, incluso mientras sigue corriendo:
+
+```bash
+bash scripts/survey-resumen.sh
+```
+
+Acumula todo en `data/survey.csv` y da el veredicto:
 
 - **Sin libro sharp en ninguna** → revisa `ODDS_REGIONS`, no has medido nada
 - **Cero oportunidades en todas** → no hay nada que capturar, ahórrate la cuota
