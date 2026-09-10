@@ -781,6 +781,93 @@ def cmd_validate_source(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_simulate(args: argparse.Namespace) -> int:
+    """Simula la estrategia completa contra odds de cierre historicas REALES.
+
+    Es la unica prueba que responde "¿esto gana dinero?". Todo lo demas mide si
+    el modelo predice mejor que la tasa base, que es un rival trivial comparado
+    con un mercado de apuestas.
+
+    Solo NFL por ahora: nflverse es la unica fuente gratuita encontrada que
+    publica moneylines historicas junto a los resultados.
+    """
+    import csv
+
+    from betbot.backtest.strategy import simulate
+    from betbot.ingest.http import CachedFetcher
+    from betbot.ingest.sources.nfl_nflverse import URL
+    from betbot.ingest.teams import TeamRegistry
+    from betbot.models.elo import EloConfig, EloRatings
+    from betbot.models.nfl import NFL_ELO
+    from betbot.types import Sport
+
+    settings = Settings.from_env()
+    reg = TeamRegistry(Sport.NFL, strict=False)
+
+    def american_a_decimal(valor: str) -> float:
+        v = float(valor)
+        return 1 + v / 100 if v > 0 else 1 + 100 / abs(v)
+
+    raw = CachedFetcher().get_text(URL, suffix=".csv")
+    partidos = []
+    anterior = None
+    for row in sorted(csv.DictReader(raw.splitlines()), key=lambda r: r["gameday"] or ""):
+        if not row.get("home_score") or not row.get("gameday"):
+            continue
+        home = reg.resolve(row["home_team"])
+        away = reg.resolve(row["away_team"])
+        if not home or not away or home == away:
+            continue
+        temporada = int(row["season"])
+        juego = {
+            "home": home, "away": away,
+            "home_score": int(row["home_score"]), "away_score": int(row["away_score"]),
+            "date": row["gameday"], "season": temporada,
+            "neutral": row.get("location") == "Neutral",
+            "new_season": anterior is not None and temporada != anterior,
+        }
+        if row.get("home_moneyline") and row.get("away_moneyline"):
+            try:
+                juego["home_odds"] = american_a_decimal(row["home_moneyline"])
+                juego["away_odds"] = american_a_decimal(row["away_moneyline"])
+            except (ValueError, ZeroDivisionError):
+                pass
+        partidos.append(juego)
+        anterior = temporada
+
+    con_odds = sum(1 for g in partidos if g.get("home_odds"))
+    print(f"{len(partidos)} partidos, {con_odds} con moneyline de cierre")
+    print(f"{partidos[0]['date']} -> {partidos[-1]['date']}\n")
+
+    def crear():
+        return EloRatings(EloConfig(
+            k=NFL_ELO.k, home_advantage=NFL_ELO.home_advantage, mov_multiplier=True,
+            min_games=NFL_ELO.min_games, regression_to_mean=NFL_ELO.regression_to_mean))
+
+    def predecir(elo, g):
+        if not (elo.is_reliable(g["home"]) and elo.is_reliable(g["away"])):
+            return None
+        p = elo.win_prob(g["home"], g["away"], neutral=g.get("neutral", False))
+        return 0.5 + (p - 0.5) * 0.90
+
+    def actualizar(elo, g):
+        if g.get("new_season"):
+            elo.new_season(reset_games=False)
+        elo.update(g["home"], g["away"], g["home_score"], g["away_score"],
+                   neutral=g.get("neutral", False))
+
+    cfg = settings.ev_config()
+    resultado = simulate(partidos, crear, predecir, actualizar, cfg)
+    print(resultado)
+    print(
+        "\nESTAS SON LINEAS DE CIERRE: el precio mas eficiente del mercado y la "
+        "prueba\nmas dura posible. Un ROI negativo aqui significa que el modelo no "
+        "tiene ventaja\nsuficiente para superar el margen — saberlo ANTES de "
+        "arriesgar dinero es el\nmotivo de que exista este comando."
+    )
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     from betbot.backtest.metrics import clv_summary
 
@@ -869,6 +956,10 @@ def main(argv: list[str] | None = None) -> int:
     p_close.add_argument("--window", type=int, default=30,
                          help="minutos antes del inicio a capturar (def. 30)")
     p_close.set_defaults(func=cmd_close)
+
+    p_sim = sub.add_parser("simulate",
+                           help="simula la estrategia contra odds historicas reales")
+    p_sim.set_defaults(func=cmd_simulate)
 
     p_report = sub.add_parser("report", help="ROI y CLV de las senales guardadas")
     p_report.set_defaults(func=cmd_report)
