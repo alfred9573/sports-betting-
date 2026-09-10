@@ -75,7 +75,7 @@ alerts/       Consola y Telegram
 storage.py    SQLite: señales, odds de cierre, liquidación
 closing.py    Captura de línea de cierre (el job que hace medible el CLV)
 cli.py        doctor / validate-source / demo / ingest / backtest /
-              simulate / scan / close / report
+              simulate / scan / close / report / test-telegram
 ```
 
 El motor de EV no sabe nada de baloncesto, béisbol ni fútbol: solo consume

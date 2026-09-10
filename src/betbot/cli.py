@@ -133,8 +133,16 @@ def cmd_scan(args: argparse.Namespace) -> int:
         return 2
 
     provider = TheOddsAPI(settings.odds_api_key, regions=settings.regions)
+    # lineshop rinde mas en totales y handicap, donde el mercado ya esta en
+    # 50/50 y solo queda el precio. Cuesta 3 creditos en vez de 1: la cuota se
+    # cobra por mercado.
+    mercados = (
+        [Market.TOTALS, Market.SPREAD, Market.MONEYLINE]
+        if args.strategy == "lineshop"
+        else [Market.MONEYLINE]
+    )
     try:
-        events = provider.fetch_events(sport, [Market.MONEYLINE])
+        events = provider.fetch_events(sport, mercados)
     except OddsAPIError as e:
         print(f"Error consultando odds: {e}", file=sys.stderr)
         return 1
@@ -893,6 +901,54 @@ def cmd_simulate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_test_telegram(args: argparse.Namespace) -> int:
+    """Comprueba la configuracion de Telegram enviando un mensaje de prueba."""
+    from betbot.alerts.telegram import TelegramAlerter
+
+    settings = Settings.from_env()
+    if not settings.telegram_bot_token:
+        print(
+            "Falta TELEGRAM_BOT_TOKEN en .env.\n\n"
+            "Como conseguirlo:\n"
+            "  1. En Telegram, habla con @BotFather\n"
+            "  2. Manda /newbot y sigue las instrucciones\n"
+            "  3. Te da un token tipo 123456789:AAF...\n"
+            "  4. Pegalo en .env como TELEGRAM_BOT_TOKEN=",
+            file=sys.stderr,
+        )
+        return 2
+
+    if not settings.telegram_chat_id:
+        print(
+            "Falta TELEGRAM_CHAT_ID en .env.\n\n"
+            "Como conseguirlo:\n"
+            "  1. Manda cualquier mensaje a TU bot desde Telegram\n"
+            "  2. Abre en el navegador:\n"
+            f"     https://api.telegram.org/bot{settings.telegram_bot_token}"
+            "/getUpdates\n"
+            '  3. Busca "chat":{"id":NUMERO — ese numero es tu chat_id\n'
+            "  4. Pegalo en .env como TELEGRAM_CHAT_ID=",
+            file=sys.stderr,
+        )
+        return 2
+
+    alerter = TelegramAlerter(settings.telegram_bot_token, settings.telegram_chat_id)
+    print("Enviando mensaje de prueba...")
+    if alerter.send_text(
+        "*betbot* conectado.\n\n"
+        "Si lees esto, las alertas funcionan. Las senales llegaran por aqui."
+    ):
+        print("Enviado. Revisa Telegram.")
+        return 0
+
+    print(
+        "No se pudo enviar. Revisa que el token sea correcto y que hayas "
+        "escrito al bot al menos una vez desde tu cuenta.",
+        file=sys.stderr,
+    )
+    return 1
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     from betbot.backtest.metrics import clv_summary
 
@@ -989,6 +1045,9 @@ def main(argv: list[str] | None = None) -> int:
     p_sim = sub.add_parser("simulate",
                            help="simula la estrategia contra odds historicas reales")
     p_sim.set_defaults(func=cmd_simulate)
+
+    p_tg = sub.add_parser("test-telegram", help="comprueba las alertas de Telegram")
+    p_tg.set_defaults(func=cmd_test_telegram)
 
     p_report = sub.add_parser("report", help="ROI y CLV de las senales guardadas")
     p_report.set_defaults(func=cmd_report)

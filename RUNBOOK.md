@@ -344,6 +344,47 @@ terminal falla en cron por cualquiera de esas tres cosas — y falla en silencio
 si no rediriges la salida. `scripts/betbot-cron.sh` se encarga de eso, añade
 marca de tiempo a cada ejecución y rota los logs a los 5 MB.
 
+## 5b. Telegram
+
+```bash
+python -m betbot.cli test-telegram
+```
+
+Si falta configuración, el comando te dice exactamente qué hacer. Resumen:
+
+1. En Telegram, habla con **@BotFather** → `/newbot` → te da un token
+2. Pégalo en `.env` como `TELEGRAM_BOT_TOKEN=`
+3. **Manda cualquier mensaje a tu bot** (si no, no puede escribirte)
+4. Abre `https://api.telegram.org/bot<TU_TOKEN>/getUpdates` y busca
+   `"chat":{"id":NUMERO`
+5. Pégalo como `TELEGRAM_CHAT_ID=`
+6. Vuelve a correr `test-telegram`
+
+Con `lineshop` las alertas dejan de ser un lujo: la ventana de una línea
+desfasada se cierra en minutos.
+
+## 5c. La cuenta de la cuota
+
+`lineshop` cubre tres mercados (totales, hándicap, moneyline) y **The Odds API
+cobra por mercado**: 3 créditos por escaneo en vez de 1.
+
+| Configuración | Créditos/mes |
+|---|---|
+| Solo modelo, 1 deporte | ~90 |
+| Solo modelo, 2 deportes | ~180 |
+| + lineshop cada 2h, 1 deporte | **~1.170** |
+
+**El plan gratuito son 500/mes: con lineshop activo no cabe.** Opciones:
+
+- Subir el intervalo de lineshop (cada 6h ≈ 360/mes)
+- Un solo deporte
+- Pasar a un plan de pago
+
+Y hay una tensión real que conviene ver: `lineshop` **necesita frecuencia** —
+una línea desfasada dura minutos— así que espaciarlo mucho le quita justo lo que
+lo hace funcionar. Si la estrategia te convence, el plan de pago es parte del
+coste de probarla en serio.
+
 ## 6. Dinero de papel: qué mirar y cuándo decidir
 
 Apunta las señales en papel. No muevas dinero real todavía.

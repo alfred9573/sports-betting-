@@ -37,8 +37,13 @@ for d in "${DEPORTES[@]}"; do
     F="$(fuente_de "$d")"
     BLOQUE="$BLOQUE
 # --- $d ---
-# Escaneo 3 veces al dia (~90 creditos/mes por deporte)
+# Escaneo por modelo, 3 veces al dia (~90 creditos/mes por deporte)
 $MINUTO 9,15,21 * * * $WRAP scan --sport $d
+# Escaneo por desacuerdo entre casas, cada 2h. Cubre totales y handicap, que es
+# donde esta estrategia es mas fuerte. Cuesta 3 creditos por ejecucion (la cuota
+# se cobra por mercado), asi que ~1080/mes por deporte: subelo o bajalo segun tu
+# plan. Con el plan gratuito de 500, deja SOLO UN deporte y sube el intervalo.
+$((MINUTO + 1)) */2 * * * $WRAP scan --sport $d --strategy lineshop
 # Reingesta semanal de resultados (martes 6:00). Sin esto los ratings envejecen.
 0 6 * * 2 $WRAP ingest --sport $d $F --from \$(date +\\%Y) --to \$(date +\\%Y) --force"
     MINUTO=$((MINUTO + 3))
@@ -62,8 +67,16 @@ echo "$BLOQUE"
 echo "----------------------------------------"
 echo
 echo "Deportes: ${DEPORTES[*]}"
-echo "Presupuesto estimado: ~$(( ${#DEPORTES[@]} * 90 )) creditos/mes en escaneos,"
-echo "mas los cierres (variable). Limite del plan gratuito: 500/mes."
+SOLO_MODELO=$(( ${#DEPORTES[@]} * 90 ))
+CON_LINESHOP=$(( SOLO_MODELO + ${#DEPORTES[@]} * 1080 ))
+echo "Presupuesto estimado de creditos al mes:"
+echo "  escaneo por modelo      ~${SOLO_MODELO}"
+echo "  + escaneo lineshop      ~${CON_LINESHOP} en total"
+echo "  mas los cierres (variable)."
+echo
+echo "OJO: el plan gratuito son 500/mes. Con lineshop activo NO cabe."
+echo "Opciones: quitar la linea de lineshop del crontab, subir su intervalo,"
+echo "dejar un solo deporte, o pasar a un plan de pago."
 echo
 read -r -p "¿Instalar? [s/N] " RESP
 case "$RESP" in

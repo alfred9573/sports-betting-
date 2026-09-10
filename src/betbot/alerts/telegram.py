@@ -25,13 +25,29 @@ class TelegramAlerter:
 
     def _format(self, s: Signal) -> str:
         pt = f" {s.point:+g}" if s.point is not None else ""
+        mercado = {
+            "h2h": "Ganador", "spreads": "Hándicap", "totals": "Total",
+        }.get(s.market.value, s.market.value)
+
+        # En lineshop la referencia ES el precio sharp, asi que "modelo vs
+        # mercado" no dice nada: lo informativo es de donde sale la ventaja.
+        if s.model_name.startswith("lineshop"):
+            origen = f"Precio sharp {s.fair_prob:.1%} vs este libro {1 / s.decimal_odds:.1%}"
+        else:
+            origen = f"Modelo {s.model_prob:.1%} vs mercado {s.fair_prob:.1%}"
+
         return (
             f"*{s.sport.name}* — {s.matchup}\n"
-            f"`{s.selection}{pt}` @ *{s.decimal_odds:.2f}* ({s.bookmaker})\n"
-            f"Modelo {s.model_prob:.1%} vs mercado {s.fair_prob:.1%}\n"
+            f"{mercado}: `{s.selection}{pt}` @ *{s.decimal_odds:.2f}* "
+            f"({s.bookmaker})\n"
+            f"{origen}\n"
             f"EV *{s.ev:+.2%}* · stake {s.stake_units:.2f} u ({s.kelly_stake:.2%})\n"
             f"Inicio: {s.commence_time:%d/%m %H:%M} UTC"
         )
+
+    def send_text(self, texto: str) -> bool:
+        """Mensaje suelto, para comprobar la configuracion."""
+        return self._post(texto)
 
     def send(self, signals: list[Signal]) -> int:
         sent = 0

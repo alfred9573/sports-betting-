@@ -213,3 +213,38 @@ def test_clv_significance_needs_consistency():
 def test_clv_pct_is_reported():
     s = clv_summary([{"decimal_odds": 2.10, "closing_odds": 2.00}] * 10)
     assert s.mean_clv_pct == pytest.approx(0.05, abs=1e-9)
+
+
+# ---------- formato de las alertas ----------
+
+def test_telegram_explains_where_the_edge_comes_from():
+    """En lineshop, 'modelo vs mercado' no dice nada porque la referencia ES el
+    precio sharp. El mensaje tiene que decir de donde sale la ventaja."""
+    from betbot.alerts.telegram import TelegramAlerter
+
+    s = Signal(
+        event_id="e", sport=Sport.NFL, commence_time=NOW + timedelta(hours=3),
+        matchup="Bills @ Chiefs", market=Market.TOTALS, selection="Over",
+        point=45.5, bookmaker="draftkings", decimal_odds=2.05, model_prob=0.50,
+        fair_prob=0.50, ev=0.025, edge=0.012, kelly_stake=0.006,
+        stake_units=5.95, model_name="lineshop_v1",
+    )
+    texto = TelegramAlerter("t", "c")._format(s)
+    assert "Precio sharp" in texto
+    assert "Total" in texto
+    assert "45.5" in texto
+
+
+def test_telegram_shows_model_comparison_for_model_strategy():
+    from betbot.alerts.telegram import TelegramAlerter
+
+    s = Signal(
+        event_id="e", sport=Sport.NBA, commence_time=NOW + timedelta(hours=3),
+        matchup="A @ B", market=Market.MONEYLINE, selection="B", point=None,
+        bookmaker="pinnacle", decimal_odds=2.0, model_prob=0.60, fair_prob=0.50,
+        ev=0.20, edge=0.10, kelly_stake=0.02, stake_units=20.0,
+        model_name="nba_elo_v1",
+    )
+    texto = TelegramAlerter("t", "c")._format(s)
+    assert "Modelo" in texto
+    assert "Ganador" in texto
