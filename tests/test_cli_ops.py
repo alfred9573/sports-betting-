@@ -370,7 +370,7 @@ def test_scan_aborts_below_reserve(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(api, "TheOddsAPI", FakeProvider)
 
     args = argparse.Namespace(
-        sport="nba", games_db=str(tmp_path / "g.db"), force=False,
+        sport="nba", games_db=str(tmp_path / "g.db"), force=False, strategy="model",
     )
     code = cli.cmd_scan(args)
     salida = capsys.readouterr().out

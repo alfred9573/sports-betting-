@@ -901,6 +901,142 @@ def cmd_simulate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_survey(args: argparse.Namespace) -> int:
+    """Mide si existe la oportunidad que busca `lineshop`, sin apostar nada.
+
+    POR QUE ESTE COMANDO. Antes de pagar un plan de odds mas grande conviene
+    saber si hay algo que capturar. Un solo escaneo (3 creditos) responde:
+    ¿cuanto se desvian las casas blandas del precio sharp, y con que frecuencia
+    esa desviacion es suficiente para apostar?
+
+    Si los desacuerdos son raros o pequenos, ningun plan lo arregla y el gasto
+    no tiene sentido. Si son frecuentes, el plan se justifica solo.
+    """
+    from betbot.ev.lineshop import LineShopConfig, LineShopEngine
+    from betbot.odds.the_odds_api import OddsAPIError, TheOddsAPI
+
+    settings = Settings.from_env()
+    if not settings.odds_api_key:
+        print("Falta ODDS_API_KEY.", file=sys.stderr)
+        return 2
+
+    sport = SPORT_ALIASES.get(args.sport)
+    if sport is None:
+        print(f"Deporte desconocido: {args.sport}", file=sys.stderr)
+        return 2
+
+    provider = TheOddsAPI(settings.odds_api_key, regions=settings.regions)
+    mercados = [Market.TOTALS, Market.SPREAD, Market.MONEYLINE]
+    try:
+        events = provider.fetch_events(sport, mercados)
+    except OddsAPIError as e:
+        print(f"Error consultando odds: {e}", file=sys.stderr)
+        return 1
+
+    print(f"{len(events)} eventos | cuota restante: {provider.credits_remaining}")
+    print(f"(este escaneo costo {len(mercados)} creditos: la API cobra por mercado)\n")
+
+    if not events:
+        print("Sin eventos. Prueba otro deporte o vuelve en temporada.")
+        return 0
+
+    motor = LineShopEngine(LineShopConfig(min_ev=-99, min_edge=-99))
+    todas: list[tuple[str, float, str]] = []
+    con_sharp = 0
+    libros_vistos: dict[str, int] = {}
+
+    for ev in events:
+        for bm in ev.books:
+            libros_vistos[bm.bookmaker] = libros_vistos.get(bm.bookmaker, 0) + 1
+        tiene_sharp = False
+        for m in mercados:
+            if motor.sharp_probs(ev, m) is not None:
+                tiene_sharp = True
+            for s in motor.evaluate(ev, m):
+                todas.append((m.value, s.ev, s.bookmaker))
+        if tiene_sharp:
+            con_sharp += 1
+
+    print(f"Eventos con al menos un libro sharp cotizando: {con_sharp}/{len(events)}")
+    if not con_sharp:
+        print(
+            "\nSIN REFERENCIA SHARP no hay estrategia posible: comparar dos casas\n"
+            "blandas entre si no dice cual tiene razon. Prueba con "
+            "ODDS_REGIONS=eu,uk\nen .env, que es donde suele estar Pinnacle."
+        )
+        return 0
+
+    print(f"Libros presentes: {len(libros_vistos)}")
+    print(f"  {', '.join(sorted(libros_vistos)[:12])}\n")
+
+    if not todas:
+        print("Ninguna discrepancia medible. La oportunidad no existe ahora mismo.")
+        return 0
+
+    # Solo se cuentan discrepancias FAVORABLES: que una casa pague peor que la
+    # sharp no es una oportunidad, es simplemente un mal precio que se ignora.
+    print("CUANTAS OPORTUNIDADES HABRIA SEGUN EL UMBRAL DE EV")
+    print(f"{'umbral':>10} {'oportunidades':>15} {'% de eventos':>14}")
+    for umbral in (0.00, 0.01, 0.02, 0.03, 0.05):
+        n = sum(1 for _, ev_val, _ in todas if ev_val >= umbral)
+        print(f"{umbral:>9.0%} {n:>15} {n / len(events):>13.0%}")
+
+    positivas = sorted((e for _, e, _ in todas if e > 0), reverse=True)
+    if positivas:
+        print(f"\nMejor EV encontrado ahora: {positivas[0]:+.2%}")
+        mediana = positivas[len(positivas) // 2]
+        print(f"Mediana de las positivas:  {mediana:+.2%}")
+
+    por_mercado: dict[str, int] = {}
+    for mercado, ev_val, _ in todas:
+        if ev_val >= 0.02:
+            por_mercado[mercado] = por_mercado.get(mercado, 0) + 1
+    if por_mercado:
+        print("\nDonde aparecen (EV >= 2%):")
+        for m, n in sorted(por_mercado.items(), key=lambda x: -x[1]):
+            print(f"  {m:<10} {n}")
+
+    por_libro: dict[str, int] = {}
+    for _, ev_val, libro in todas:
+        if ev_val >= 0.02:
+            por_libro[libro] = por_libro.get(libro, 0) + 1
+    if por_libro:
+        print("\nQue casas se quedan atras (EV >= 2%):")
+        for libro, n in sorted(por_libro.items(), key=lambda x: -x[1])[:8]:
+            print(f"  {libro:<20} {n}")
+
+    n_util = sum(1 for _, e, _ in todas if e >= 0.02)
+    print("\n" + "=" * 62)
+    print("QUE SIGNIFICA ESTO PARA DECIDIR SI PAGAR UN PLAN")
+    print("=" * 62)
+    if n_util == 0:
+        print(
+            "En este momento NO hay ninguna oportunidad por encima del 2%.\n"
+            "Un solo escaneo no es concluyente —las ventanas duran minutos— pero\n"
+            "si repites esto varias veces y sigue en cero, pagar mas cuota no\n"
+            "sirve de nada: no hay nada que capturar."
+        )
+    else:
+        print(
+            f"Hay {n_util} oportunidades por encima del 2% AHORA MISMO.\n\n"
+            "Cuidado con extrapolar: esto es una foto, no una pelicula. Una\n"
+            "linea desfasada dura minutos, asi que lo que ves aqui puede\n"
+            "desaparecer antes de que apuestes. Repite el comando varias veces\n"
+            "a lo largo de un dia: si el numero se mantiene, la oportunidad es\n"
+            "estructural y justifica pagar por escanear mas seguido. Si aparece\n"
+            "y desaparece sin patron, estas viendo ruido de sincronizacion."
+        )
+    print(
+        "\nCoste de escanear un deporte, segun frecuencia (3 creditos por vez):"
+    )
+    for etiqueta, cada_min in (("cada 10 min", 10), ("cada 30 min", 30),
+                               ("cada 2 horas", 120), ("cada 6 horas", 360)):
+        por_mes = (60 / cada_min) * 24 * 30 * 3
+        print(f"  {etiqueta:<14} ~{por_mes:>7,.0f} creditos/mes")
+    print("\nCompara con el limite de tu plan actual antes de decidir.")
+    return 0
+
+
 def cmd_test_telegram(args: argparse.Namespace) -> int:
     """Comprueba la configuracion de Telegram enviando un mensaje de prueba."""
     from betbot.alerts.telegram import TelegramAlerter
@@ -1045,6 +1181,11 @@ def main(argv: list[str] | None = None) -> int:
     p_sim = sub.add_parser("simulate",
                            help="simula la estrategia contra odds historicas reales")
     p_sim.set_defaults(func=cmd_simulate)
+
+    p_sv = sub.add_parser("survey",
+                          help="mide si existe oportunidad de lineshop (3 creditos)")
+    p_sv.add_argument("--sport", default="nfl", help=f"uno de {sorted(SPORT_ALIASES)}")
+    p_sv.set_defaults(func=cmd_survey)
 
     p_tg = sub.add_parser("test-telegram", help="comprueba las alertas de Telegram")
     p_tg.set_defaults(func=cmd_test_telegram)

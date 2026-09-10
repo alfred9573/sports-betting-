@@ -170,3 +170,26 @@ def test_min_edge_does_not_cancel_min_ev():
     ev = evento_totales(("pinnacle", 1.909, 1.909), ("draftkings", 2.05, 1.80))
     assert LineShopEngine(LineShopConfig(min_edge=0.005)).evaluate(ev, Market.TOTALS)
     assert LineShopEngine(LineShopConfig(min_edge=0.015)).evaluate(ev, Market.TOTALS) == []
+
+
+# ---------- survey: medir la oportunidad antes de pagar ----------
+
+def test_survey_engine_sees_small_opportunities():
+    """El survey baja los umbrales para MEDIR cuanta oportunidad hay, no para
+    apostar: tiene que ver tambien las discrepancias pequenas que los filtros
+    normales descartan."""
+    # draftkings paga peor en Home pero algo mejor en Away: +1,9% de EV, por
+    # debajo del umbral operativo del 2%.
+    ev = evento(("pinnacle", 1.60, 2.45), ("draftkings", 1.50, 2.60))
+    abierto = LineShopEngine(LineShopConfig(min_ev=-99, min_edge=-99))
+    assert len(abierto.evaluate(ev)) > len(LineShopEngine().evaluate(ev))
+
+
+def test_negative_ev_never_becomes_a_signal():
+    """Aunque se desactiven los umbrales, el filtro de Kelly impide que una
+    discrepancia DESFAVORABLE se emita como senal: apostar ahi seria pagar por
+    el privilegio. Por eso el survey mide oportunidad, no ruido en ambos
+    sentidos."""
+    ev = evento(("pinnacle", 1.60, 2.45), ("draftkings", 1.50, 2.60))
+    abierto = LineShopEngine(LineShopConfig(min_ev=-99, min_edge=-99))
+    assert all(s.ev > 0 for s in abierto.evaluate(ev))

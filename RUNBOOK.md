@@ -363,7 +363,33 @@ Si falta configuración, el comando te dice exactamente qué hacer. Resumen:
 Con `lineshop` las alertas dejan de ser un lujo: la ventana de una línea
 desfasada se cierra en minutos.
 
-## 5c. La cuenta de la cuota
+## 5c. ¿Merece la pena pagar más cuota? Mídelo antes
+
+```bash
+python -m betbot.cli survey --sport nfl
+```
+
+Cuesta **3 créditos** y responde con datos si existe la oportunidad que
+`lineshop` busca: cuántas casas cotizan, si hay alguna sharp de referencia,
+cuántas discrepancias hay ahora mismo y de qué tamaño.
+
+Cómo interpretarlo:
+
+- **Cero oportunidades por encima del 2%, repetidamente** → no hay nada que
+  capturar y ningún plan lo arregla. Ahórrate el dinero.
+- **Aparecen y se mantienen a lo largo del día** → la oportunidad es estructural
+  y escanear más seguido tiene sentido.
+- **Aparecen y desaparecen sin patrón** → estás viendo ruido de sincronización
+  entre casas, no una ventaja explotable.
+
+**Es una foto, no una película.** Córrelo varias veces a lo largo de un día antes
+de sacar conclusiones. Con 500 créditos gratis te caben ~160 fotos: de sobra para
+decidir con evidencia en vez de con intuición.
+
+Si no aparece ninguna casa sharp, prueba `ODDS_REGIONS=eu,uk` en `.env` — es
+donde suele estar Pinnacle.
+
+## 5d. La cuenta de la cuota
 
 `lineshop` cubre tres mercados (totales, hándicap, moneyline) y **The Odds API
 cobra por mercado**: 3 créditos por escaneo en vez de 1.
