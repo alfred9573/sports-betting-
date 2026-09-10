@@ -94,13 +94,45 @@ todavía positivo pero indistinguible de cero.
 
 **Queda como hipótesis para validar hacia delante**, no como hallazgo.
 
-## 5. Ajuste por abridor en MLB
+## 5. ¿Hay algún segmento menos eficiente? (11 probados)
+
+Si el mercado fuera descuidado en algún rincón —partidos poco vistos, inicio de
+temporada con poca información, divisionales— ahí estaría la oportunidad. Se
+comparó el Brier del modelo contra el del mercado en 11 segmentos.
+
+**El mercado gana en los once.** Sin excepción.
+
+| Segmento | n | Mercado | Modelo | Diferencia |
+|---|---|---|---|---|
+| Semanas 1-4 (poca info) | 1120 | 0.22064 | 0.22581 | +0.00517 |
+| No divisionales | 3324 | 0.21284 | 0.22041 | +0.00757 |
+| Partido parejo | 1047 | 0.24941 | 0.25759 | +0.00818 |
+| Playoffs | 230 | 0.21885 | 0.22712 | +0.00827 |
+| Semanas 5-13 | 2480 | 0.21042 | 0.22006 | +0.00964 |
+| **Todos** | **5166** | **0.21098** | **0.22090** | **+0.00992** |
+| 2006-2012 | 1605 | 0.21017 | 0.22083 | +0.01066 |
+| Favorito claro | 2668 | 0.17874 | 0.19107 | +0.01234 |
+| 2019-2025 | 1960 | 0.21063 | 0.22308 | +0.01245 |
+| Semanas 14+ | 1566 | 0.20496 | 0.21872 | +0.01376 |
+| Divisionales | 1842 | 0.20761 | 0.22178 | +0.01417 |
+
+La distancia se estrecha al inicio de temporada (+0.005), que es cuando el
+mercado tiene menos información — pero nunca se cierra.
+
+**Alcance de esta conclusión**: las líneas de cierre de la NFL son probablemente
+el mercado de apuestas más eficiente que existe (volumen enorme, mucho dinero
+profesional). Que no haya nada aquí NO demuestra que no lo haya en mercados menos
+líquidos —Liga MX, divisiones menores, ligas femeninas— donde el dinero
+profesional presta menos atención. Eso queda sin probar únicamente por falta de
+odds históricas de esos mercados.
+
+## 6. Ajuste por abridor en MLB
 
 Inferir la calidad del lanzador desde los resultados del equipo: **+0.0004** de
 log-loss en holdout. Ruido. Ver `models/pitchers.py` para el detalle y por qué
 harían falta proyecciones tipo FIP/SIERA.
 
-## 6. Parlays
+## 7. Parlays
 
 No requieren backtest: la matemática es cerrada. Un parlay multiplica el EV por
 pata — `EV_parlay = (1 + EV_pata)^n - 1`.
