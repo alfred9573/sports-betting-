@@ -43,6 +43,12 @@ class EVConfig:
 
     min_ev: float = 0.03              # EV minimo para alertar
     min_edge: float = 0.02            # diferencia minima modelo vs mercado
+    max_edge: float = 1.0
+    """Diferencia MAXIMA modelo vs mercado. Contraintuitivo pero medido: cuando
+    el modelo discrepa mucho del mercado (>10pp), el mercado acierta mas. Una
+    discrepancia enorme no es una oportunidad enorme, es la senal de que al
+    modelo le falta informacion que el mercado si tiene (lesion, alineacion,
+    noticia). Por defecto desactivado (1.0); ver backtest en RESEARCH.md."""
     max_odds: float = 10.0            # evita longshots: alto EV teorico, malisima calibracion
     min_odds: float = 1.20            # evita favoritisimos: ruina si el modelo falla
     kelly_fraction: float = 0.25
@@ -130,7 +136,7 @@ class EVEngine:
                 continue
 
             edge = p_model - p_fair
-            if edge < cfg.min_edge:
+            if edge < cfg.min_edge or edge > cfg.max_edge:
                 continue
 
             ev = expected_value(p_model, odds)

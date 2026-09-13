@@ -36,7 +36,16 @@ equivoca.
 Validación del simulador antes de creerse nada: apostador aleatorio -2,51%
 (≈ el margen), siempre-favorito -4,75%, oráculo que conoce el resultado +88,80%.
 
-## 2. Ángulos situacionales (25 probados)
+## 2. Ángulos situacionales (36 probados)
+
+Segunda tanda (11 ángulos): cambio de QB titular a favor y en contra (ML y ATS),
+árbitros históricamente "de overs"/"de unders", underdog recibiendo +3/+7
+exactos y sus vecinos (+2.5/+6.5, +3.5/+7.5), y regresión tras ganar o perder
+por 21+. **Ninguno sobrevive.** El único significativo es negativo: apostar
+*a favor* de un equipo con QB nuevo pierde un 9,98% (t=-2,63) — el mercado ya lo
+castiga, y de sobra.
+
+Primera tanda (25 ángulos):
 
 Ninguno con ventaja positiva que sobreviva la corrección por prueba múltiple.
 Los dos únicos significativos son **negativos**.
@@ -93,6 +102,29 @@ beneficio en 5 apuestas, son la firma del ruido. Sin esas 5 el ROI cae a +4,65%,
 todavía positivo pero indistinguible de cero.
 
 **Queda como hipótesis para validar hacia delante**, no como hallazgo.
+
+## 4b. Filtro por banda de discrepancia (la lección de overfitting)
+
+Hipótesis: el modelo pierde contra el mercado sobre todo cuando discrepa mucho
+(>10pp). ¿Y si solo se apuesta cuando discrepa poco?
+
+Se añadió `max_edge` al motor y se probaron 18 combinaciones de banda y rango
+de cuotas. Selección en 2006-2015, validación en 2016-2025:
+
+| Configuración | Train 2006-2015 | **Holdout 2016-2025** |
+|---|---|---|
+| Banda 6-10%, cuotas 1.5-2.5 (la mejor en train) | **+17,81%** (t=2,45) | **-6,38%** |
+| Banda 3-6%, cuotas 1.5-2.5 | -16,47% | -9,00% |
+| Sin filtro | — | -7,73% |
+
+**La mejor configuración en train se dio la vuelta en holdout.** Con 18
+combinaciones, una brilla por azar; al aplicarla a datos no vistos, pierde. Es
+el mecanismo exacto por el que los vendedores de picks enseñan resultados
+espectaculares: muestran el train y callan el holdout.
+
+Ninguna banda supera a "sin filtro", y "sin filtro" pierde. El filtro queda en
+el motor (desactivado por defecto) como recordatorio medido de que restringir
+un modelo sin ventaja no le da ventaja.
 
 ## 5. ¿Hay algún segmento menos eficiente? (11 probados)
 

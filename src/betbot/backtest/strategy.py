@@ -146,7 +146,8 @@ def simulate(
                 for sel, rival, es_local, p_mod, p_just, odds in candidatos:
                     if not cfg.min_odds <= odds <= cfg.max_odds:
                         continue
-                    if p_mod - p_just < cfg.min_edge:
+                    edge = p_mod - p_just
+                    if edge < cfg.min_edge or edge > cfg.max_edge:
                         continue
                     ev = expected_value(p_mod, odds)
                     if ev < cfg.min_ev:
