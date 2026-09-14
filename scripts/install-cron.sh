@@ -4,6 +4,7 @@
 #
 #   bash scripts/install-cron.sh              # deportes por defecto (epl nfl)
 #   bash scripts/install-cron.sh epl nfl nba  # los que quieras
+#   bash scripts/install-cron.sh --colecta nfl   # + archivado de lineas
 
 set -uo pipefail
 
@@ -12,7 +13,14 @@ WRAP="$REPO/scripts/betbot-cron.sh"
 MARCA="# --- betbot ---"
 FIN="# --- fin betbot ---"
 
-DEPORTES=("$@")
+COLECTA=0
+DEPORTES=()
+for arg in "$@"; do
+    case "$arg" in
+        --colecta) COLECTA=1 ;;
+        *) DEPORTES+=("$arg") ;;
+    esac
+done
 [ ${#DEPORTES[@]} -eq 0 ] && DEPORTES=(epl nfl)
 
 # Fuente de ingesta por deporte: la que tiene temporada en curso.
@@ -46,6 +54,13 @@ $MINUTO 9,15,21 * * * $WRAP scan --sport $d
 $((MINUTO + 1)) */2 * * * $WRAP scan --sport $d --strategy lineshop
 # Reingesta semanal de resultados (martes 6:00). Sin esto los ratings envejecen.
 0 6 * * 2 $WRAP ingest --sport $d $F --from \$(date +\\%Y) --to \$(date +\\%Y) --force"
+    if [ "$COLECTA" -eq 1 ]; then
+        BLOQUE="$BLOQUE
+# Archivado de lineas: NO apuesta ni alerta, solo guarda precios para poder
+# backtestear mas adelante lo que hoy no tiene historico (props, line shopping).
+# Dos barridos al dia x 3 creditos = ~180 creditos/mes por deporte.
+$((MINUTO + 2)) 8,20 * * * $WRAP collect --sport $d"
+    fi
     MINUTO=$((MINUTO + 3))
 done
 
@@ -73,6 +88,9 @@ echo "Presupuesto estimado de creditos al mes:"
 echo "  escaneo por modelo      ~${SOLO_MODELO}"
 echo "  + escaneo lineshop      ~${CON_LINESHOP} en total"
 echo "  mas los cierres (variable)."
+if [ "$COLECTA" -eq 1 ]; then
+    echo "  + archivado de lineas    ~$(( ${#DEPORTES[@]} * 180 ))"
+fi
 echo
 echo "OJO: el plan gratuito son 500/mes. Con lineshop activo NO cabe."
 echo "Opciones: quitar la linea de lineshop del crontab, subir su intervalo,"

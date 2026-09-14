@@ -138,6 +138,61 @@ class TheOddsAPI:
             return None
 
 
+    # -----------------------------------------------------------------
+    # Acceso crudo, para el archivador de lineas (`betbot.collect`).
+    #
+    # POR QUE CRUDO Y NO `Event`. `Market` es un StrEnum cerrado (h2h/spreads/
+    # totals) porque el motor de EV solo sabe evaluar esos tres. El archivador
+    # no evalua nada: solo guarda. Si obligara a las props a pasar por el enum
+    # habria que tocar el dominio entero cada vez que la API anade un mercado
+    # y, peor, descartaria en silencio justo lo que queremos coleccionar. Aqui
+    # el mercado viaja como string.
+    # -----------------------------------------------------------------
+
+    def fetch_event_list(self, sport: Sport) -> list[dict]:
+        """Lista de eventos sin cuotas. Cuesta 0 creditos en The Odds API."""
+        raw = self._get(f"/sports/{sport.value}/events", {})
+        if not isinstance(raw, list):
+            raise OddsAPIError(f"respuesta inesperada: {type(raw).__name__}")
+        return raw
+
+    def fetch_odds_raw(self, sport: Sport, market_keys: list[str]) -> list[dict]:
+        """Feed de liga sin parsear. Cuesta n_markets * n_regions creditos."""
+        raw = self._get(
+            f"/sports/{sport.value}/odds",
+            {
+                "regions": self.regions,
+                "markets": ",".join(market_keys),
+                "oddsFormat": self.odds_format,
+            },
+        )
+        if not isinstance(raw, list):
+            raise OddsAPIError(f"respuesta inesperada: {type(raw).__name__}")
+        return raw
+
+    def fetch_event_odds_raw(
+        self, sport: Sport, event_id: str, market_keys: list[str]
+    ) -> dict:
+        """Cuotas de UN evento, unica via para props de jugador.
+
+        Las props no salen en el feed de liga: hay que pedirlas partido a
+        partido, y cada peticion cuesta n_markets * n_regions. Con 6 mercados
+        de props y 10 partidos son 60 creditos de los 500 del mes: por eso el
+        coste se estima ANTES de llamar y no se barre la liga entera a ciegas.
+        """
+        raw = self._get(
+            f"/sports/{sport.value}/events/{event_id}/odds",
+            {
+                "regions": self.regions,
+                "markets": ",".join(market_keys),
+                "oddsFormat": self.odds_format,
+            },
+        )
+        if not isinstance(raw, dict):
+            raise OddsAPIError(f"respuesta inesperada: {type(raw).__name__}")
+        return raw
+
+
 def _parse_ts(value: str | None) -> datetime:
     if not value:
         return datetime.now(UTC)

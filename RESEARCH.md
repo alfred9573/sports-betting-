@@ -243,6 +243,54 @@ desde México.
 No es un fallo de modelado ni de datos. Es que **no se puede cobrar una
 diferencia de precio en una casa donde no tienes cuenta.**
 
+## 10. Ventana del ranking de tipsters (1 ano / 2 anos / historico)
+
+Hipotesis del usuario: los rankings "de todos los tiempos" premian a gente que
+ya no esta activa o cuyo edge caduco; acortar la ventana a 1-2 anos deberia dar
+una lista mas util.
+
+Simulacion: 3.000 tipsters, 90 de ellos (3%) con EV real de +4%, el resto -3%,
+cuotas 2.00. Se ordena por yield en cada ventana, se toma el top-10, y se mide
+cuantos de esos 10 son de los que de verdad tienen edge.
+
+| Ventana | Apuestas | Yield del top-10 | Aciertos | Precision | EV real a futuro |
+|---|---|---|---|---|---|
+| 1 ano | 150 | 22,0% | 1/10 | 10% | **-2,30%** |
+| 2 anos | 300 | 14,1% | 4/10 | 40% | +0,50% |
+| 5 anos | 750 | 10,6% | 10/10 | 100% | +4,00% |
+| Historico | 1.500 | 8,8% | 10/10 | 100% | +4,00% |
+
+**Resultado: la hipotesis sale al reves.** Acortar la ventana empeora el
+ranking de forma monotona. Con 150 apuestas el ruido domina la senal, asi que
+quien encabeza la lista es el que tuvo suerte, no el que tiene edge: copiar al
+top-10 de un ranking anual da un EV a futuro de -2,30%, peor que elegir al azar.
+
+El yield mas vistoso (22,0%) sale precisamente de la ventana menos fiable. Un
+yield alto no es evidencia de habilidad si la muestra es corta; es la firma
+esperada del sesgo de supervivencia.
+
+**LIMITE IMPORTANTE DE ESTE RESULTADO.** El +4,00% de la ultima columna es un
+supuesto DE ENTRADA, no una medicion: es el edge que se le asigno por
+construccion al 3% de tipsters buenos de la simulacion. La simulacion responde
+"si existiera gente con edge real, ¿el ranking la encontraria?" y la respuesta
+es "solo con muestras largas". NO responde "¿existe esa gente?", ni cuanto edge
+tiene, ni si es copiable con las cuotas y limites que uno consigue de verdad.
+Leer ese +4% como un rendimiento alcanzable seria confundir la entrada de la
+simulacion con su salida.
+
+## Archivado de lineas (`betbot collect`)
+
+Las cinco filas de la tabla siguiente tienen la misma causa: no existe historico
+comprable. La respuesta es fabricarlo. `betbot.collect` archiva cada precio del
+feed —todas las casas, todos los mercados, props incluidas— sin apostar ni
+alertar, deduplicando por cambio de precio para guardar movimientos en vez de
+latidos.
+
+No produce picks y no los producira. Es la condicion previa para que dentro de
+varios meses se pueda plantear un backtest de props o de line shopping que hoy
+es literalmente imposible. Resultado esperado, con honestidad: puede
+perfectamente ser que tampoco haya nada.
+
 ## Lo que queda vivo
 
 Nada, con las casas disponibles desde México.

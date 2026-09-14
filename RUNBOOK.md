@@ -480,6 +480,47 @@ una línea desfasada dura minutos— así que espaciarlo mucho le quita justo lo
 lo hace funcionar. Si la estrategia te convence, el plan de pago es parte del
 coste de probarla en serio.
 
+## 5e. Archivar líneas: construir el histórico que nadie vende
+
+Dos ideas se quedaron sin probar por la misma razón —no existen datos
+históricos que comprar—: las props de jugador (nadie publica las líneas
+pasadas) y el line shopping (los mirrors de odds multi-casa tienen las columnas
+de cuotas recortadas). `collect` resuelve eso por la vía lenta: guarda cada
+precio que ve, todos los días, hasta que haya muestra.
+
+```bash
+# Un barrido: 3 mercados x 1 región = 3 créditos
+.venv/bin/python -m betbot.cli collect --sport nfl
+
+# Ver qué llevas acumulado (gratis, no toca la API)
+.venv/bin/python -m betbot.cli collect --stats
+
+# Props: estima el coste ANTES de gastar
+.venv/bin/python -m betbot.cli collect --props --dry-run --sport nfl
+```
+
+`collect` **no apuesta, no alerta y no genera picks**. Solo archiva. Si esperas
+que salga un pick de aquí, no va a pasar; lo que hace es permitir que dentro de
+unos meses se pueda hacer una pregunta que hoy no tiene respuesta posible.
+
+**Props y tu plan.** Las props no vienen en el feed de liga: hay que pedirlas
+partido a partido, y el plan gratuito normalmente no las incluye. Corre primero
+el `--dry-run`: te dice cuántos créditos costaría. Si al quitar `--dry-run`
+recibes un 422, ese es el plan diciendo que no las cubre, y el comando corta
+ahí en vez de quemar cuota repitiendo el mismo error diez veces.
+
+**Automatizarlo.** Dos barridos al día por deporte son ~180 créditos/mes, lo
+que entra en el plan gratuito de 500 *solo si no corres nada más*:
+
+```bash
+bash scripts/install-cron.sh --colecta nfl
+```
+
+**Cuándo mirar los datos.** No antes de varios cientos de eventos ya jugados
+con línea de apertura y de cierre. En NFL eso son meses. Mirar antes es leer
+ruido y convencerse de algo falso, que es exactamente el error que este
+proyecto lleva evitando desde el principio.
+
 ## 6. Dinero de papel: qué mirar y cuándo decidir
 
 Apunta las señales en papel. No muevas dinero real todavía.

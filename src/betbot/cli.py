@@ -1128,6 +1128,141 @@ def cmd_survey(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_collect(args: argparse.Namespace) -> int:
+    """Archiva el feed de cuotas sin apostar ni alertar nada.
+
+    Este comando no produce picks y no debe producirlos. Su unico trabajo es
+    acumular el historico que no se puede comprar: precios de todas las casas,
+    en todos los mercados, a lo largo del tiempo. Es la respuesta a los dos
+    callejones sin salida del proyecto (props sin lineas historicas, line
+    shopping sin odds multi-casa del pasado): si nadie lo vende, se fabrica.
+
+    Coste: igual que cualquier llamada, n_mercados * n_regiones creditos. Con
+    los tres mercados base y una region son 3 creditos por deporte y barrido.
+    Con --props el coste se multiplica por partido, asi que se estima y se
+    imprime ANTES de gastar, y se corta con --max-eventos.
+    """
+    from betbot.collect import PROPS_POR_DEPORTE, OddsArchive, parse_evento
+    from betbot.odds.the_odds_api import OddsAPIError, TheOddsAPI
+
+    archivo = OddsArchive(args.db)
+
+    if args.stats:
+        r = archivo.resumen()
+        if not r["filas"]:
+            print(f"Archivo vacio ({args.db}). Corre `collect --sport nfl` para empezar.")
+            return 0
+        print(f"Archivo: {args.db}")
+        print(f"  {r['filas']:,} precios | {r['eventos']:,} eventos | "
+              f"{r['casas']} casas | {r['mercados']} mercados")
+        print(f"  desde {r['desde'][:16]} hasta {r['hasta'][:16]}\n")
+        print("Por deporte:")
+        for d in r["por_deporte"]:
+            print(f"  {d['sport']:<32} {d['n']:>9,} precios  {d['ev']:>5} eventos")
+        print("\nPor mercado:")
+        for m in r["por_mercado"]:
+            print(f"  {m['market']:<32} {m['n']:>9,} precios  {m['ev']:>5} eventos")
+        # Sin esto el archivo es un numero que no significa nada. La barrera
+        # real para medir cualquier cosa son ~100-200 observaciones cerradas.
+        print(
+            "\nQue falta para poder medir algo: el archivo sirve cuando haya"
+            "\nvarios cientos de eventos YA JUGADOS con su linea de apertura y"
+            "\nde cierre. Antes de eso cualquier conclusion es ruido."
+        )
+        return 0
+
+    settings = Settings.from_env()
+    if not settings.odds_api_key:
+        print("Falta ODDS_API_KEY.", file=sys.stderr)
+        return 2
+
+    sport = SPORT_ALIASES.get(args.sport)
+    if sport is None:
+        print(f"Deporte desconocido: {args.sport}", file=sys.stderr)
+        return 2
+
+    n_regiones = max(1, len([r for r in settings.regions.split(",") if r.strip()]))
+    mercados = [m.strip() for m in args.markets.split(",") if m.strip()]
+    provider = TheOddsAPI(settings.odds_api_key, regions=settings.regions)
+
+    total_vistas = total_nuevas = 0
+
+    if mercados:
+        print(f"Feed de liga: {len(mercados)} mercados x {n_regiones} region(es) "
+              f"= {len(mercados) * n_regiones} creditos")
+        try:
+            crudo = provider.fetch_odds_raw(sport, mercados)
+        except OddsAPIError as e:
+            print(f"Error consultando odds: {e}", file=sys.stderr)
+            return 1
+        filas = [f for item in crudo for f in parse_evento(item, sport.value)]
+        res = archivo.archivar(filas)
+        total_vistas += res.vistas
+        total_nuevas += res.nuevas
+        print(f"  {len(crudo)} eventos | {res.vistas:,} precios vistos | "
+              f"{res.nuevas:,} nuevos | {res.sin_cambio:,} sin cambio")
+
+    if args.props:
+        claves = PROPS_POR_DEPORTE.get(sport.value)
+        if not claves:
+            print(f"No hay catalogo de props para {sport.value}.", file=sys.stderr)
+            return 2
+        try:
+            eventos = provider.fetch_event_list(sport)
+        except OddsAPIError as e:
+            print(f"Error listando eventos: {e}", file=sys.stderr)
+            return 1
+        limite = datetime.now(UTC) + timedelta(hours=args.horas)
+        proximos = [
+            e for e in eventos
+            if _ts_evento(e.get("commence_time")) is not None
+            and _ts_evento(e["commence_time"]) <= limite
+        ]
+        proximos.sort(key=lambda e: e["commence_time"])
+        proximos = proximos[: args.max_eventos]
+        coste = len(proximos) * len(claves) * n_regiones
+        print(f"\nProps: {len(proximos)} partidos x {len(claves)} mercados x "
+              f"{n_regiones} region(es) = {coste} creditos")
+        if not proximos:
+            print("  Sin partidos en la ventana. Nada que pedir.")
+        elif args.dry_run:
+            print("  --dry-run: no se gasto nada.")
+        else:
+            fallos = 0
+            for ev in proximos:
+                try:
+                    crudo_ev = provider.fetch_event_odds_raw(sport, ev["id"], list(claves))
+                except OddsAPIError as e:
+                    # Un 422 aqui casi siempre significa "tu plan no incluye
+                    # props". Se reporta una vez y se corta: reintentar 10
+                    # partidos para recibir 10 veces el mismo 422 solo quema cuota.
+                    fallos += 1
+                    print(f"  {ev.get('home_team','?')}: {e}", file=sys.stderr)
+                    if fallos == 1 and "422" in str(e):
+                        print("  Corto aqui: parece que el plan no da acceso a props.",
+                              file=sys.stderr)
+                        break
+                    continue
+                res = archivo.archivar(parse_evento(crudo_ev, sport.value))
+                total_vistas += res.vistas
+                total_nuevas += res.nuevas
+                print(f"  {ev.get('away_team','?')} @ {ev.get('home_team','?')}: "
+                      f"{res.vistas:,} precios, {res.nuevas:,} nuevos")
+
+    print(f"\nTotal archivado: {total_nuevas:,} precios nuevos de "
+          f"{total_vistas:,} vistos | cuota restante: {provider.credits_remaining}")
+    return 0
+
+
+def _ts_evento(valor) -> datetime | None:
+    if not isinstance(valor, str):
+        return None
+    try:
+        return datetime.fromisoformat(valor.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
 def cmd_test_telegram(args: argparse.Namespace) -> int:
     """Comprueba la configuracion de Telegram enviando un mensaje de prueba."""
     from betbot.alerts.telegram import TelegramAlerter
@@ -1287,6 +1422,25 @@ def main(argv: list[str] | None = None) -> int:
                       help="acumula el resultado en un CSV para ver la serie, "
                            "no solo la foto (ej: data/survey.csv)")
     p_sv.set_defaults(func=cmd_survey)
+
+    p_col = sub.add_parser(
+        "collect",
+        help="archiva cuotas para construir el historico que nadie vende (no apuesta)",
+    )
+    p_col.add_argument("--sport", default="nfl")
+    p_col.add_argument("--markets", default="h2h,spreads,totals",
+                       help="lista separada por comas; vacio para solo props")
+    p_col.add_argument("--props", action="store_true",
+                       help="pide tambien props de jugador (coste por partido)")
+    p_col.add_argument("--horas", type=int, default=48,
+                       help="ventana de partidos para las props")
+    p_col.add_argument("--max-eventos", type=int, default=6,
+                       help="tope de partidos con props por corrida (control de cuota)")
+    p_col.add_argument("--dry-run", action="store_true",
+                       help="estima el coste de props sin gastar creditos")
+    p_col.add_argument("--stats", action="store_true", help="estado del archivo")
+    p_col.add_argument("--db", default="data/odds_archive.db")
+    p_col.set_defaults(func=cmd_collect)
 
     p_tg = sub.add_parser("test-telegram", help="comprueba las alertas de Telegram")
     p_tg.set_defaults(func=cmd_test_telegram)
