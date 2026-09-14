@@ -1263,6 +1263,105 @@ def _ts_evento(valor) -> datetime | None:
         return None
 
 
+def cmd_ingest_players(args: argparse.Namespace) -> int:
+    """Descarga estadisticas semanales de jugador de NFL (nflverse, 1999-actual).
+
+    Es la base del modelo de props: sin historial de rendimiento por jugador no
+    hay forma de estimar una probabilidad propia con la que juzgar el precio del
+    libro. La reingesta es idempotente, asi que correrlo cada semana durante la
+    temporada refresca sin duplicar.
+    """
+    from betbot.ingest.player_store import PlayerStore
+    from betbot.ingest.sources.nfl_player_stats import NFLPlayerStats
+
+    store = PlayerStore(args.db)
+    if args.stats:
+        r = store.resumen()
+        if not r["filas"]:
+            print(f"Sin datos en {args.db}. Corre: ingest-players --from 1999 --to 2026")
+            return 0
+        print(f"{r['filas']:,} lineas | {r['jugadores']:,} jugadores | "
+              f"temporadas {r['desde']}-{r['hasta']} | ultima semana cargada: "
+              f"{r['ultima_semana']}")
+        return 0
+
+    fuente = NFLPlayerStats()
+    total = 0
+    for temporada in range(args.desde, args.hasta + 1):
+        try:
+            filas = fuente.fetch_season(temporada)
+        except Exception as e:
+            print(f"  {temporada}: no disponible ({e})", file=sys.stderr)
+            continue
+        total += store.upsert_many(filas)
+        print(f"  {temporada}: {len(filas):,} lineas")
+    print(f"\n{total:,} lineas guardadas en {args.db}")
+    if fuente.descartados:
+        # Casi siempre son filas sin player_id, que no sirven para una serie
+        # temporal. Se informa el numero para que un salto raro se note.
+        print(f"({len(fuente.descartados)} filas descartadas por falta de id)")
+    return 0
+
+
+def cmd_backtest_props(args: argparse.Namespace) -> int:
+    """Valida el MODELO de props contra 27 temporadas reales.
+
+    IMPORTANTE, PARA NO MALINTERPRETAR LA SALIDA. Esto NO mide si se le gana al
+    mercado: no existen lineas historicas de props con las que compararse. Mide
+    si el modelo describe bien al jugador, que es el requisito previo. Un modelo
+    mal calibrado pierde seguro; uno bien calibrado puede perder igual si el
+    mercado es mejor. Lo segundo solo se sabra con las lineas que `collect` vaya
+    archivando.
+    """
+    import sqlite3
+
+    from betbot.backtest.props import walk_forward_props
+    from betbot.models.props import MERCADOS, PropsModel
+
+    columnas = sorted(set(MERCADOS.values()))
+    conn = sqlite3.connect(args.db)
+    conn.row_factory = sqlite3.Row
+    try:
+        filas = [dict(r) for r in conn.execute(
+            f"SELECT player_id, position, season, week, {','.join(columnas)} "
+            f"FROM player_weeks WHERE season_type='REG' ORDER BY season, week"
+        )]
+    except sqlite3.OperationalError as e:
+        print(f"No hay datos de jugador en {args.db}: {e}", file=sys.stderr)
+        print("Corre primero: ingest-players --from 1999 --to 2026", file=sys.stderr)
+        return 2
+    finally:
+        conn.close()
+
+    if not filas:
+        print("Base vacia. Corre: ingest-players --from 1999 --to 2026", file=sys.stderr)
+        return 2
+
+    print(f"{len(filas):,} lineas de jugador | evaluando desde {args.desde}\n")
+    res = walk_forward_props(
+        filas, modelo=PropsModel(decay=args.decay), desde_temporada=args.desde
+    )
+
+    print(f"{'mercado':<24}{'preds':>10}{'PIT desv':>11}{'Brier':>9}{'logloss':>10}")
+    for m, r in res.items():
+        print(f"{m:<24}{r.predicciones:>10,}{r.desviacion_uniforme:>10.2f}%"
+              f"{r.brier:>9.4f}{r.log_score_medio:>10.4f}")
+
+    print("\nPIT por decil (un modelo calibrado da ~10.0 en los diez):")
+    for m, r in res.items():
+        n = len(r.pit) or 1
+        print(f"  {m:<24}" + " ".join(f"{100 * d / n:5.1f}" for d in r.pit_deciles))
+
+    if args.calibracion:
+        print("\nCalibracion sobre lineas sinteticas (predicho vs observado):")
+        for m, r in res.items():
+            print(f"\n  {m}")
+            for pm, obs, n in r.calibracion():
+                marca = "  <-- desviado" if abs(pm - obs) > 0.05 else ""
+                print(f"    {pm:5.1%} -> {obs:5.1%}  (n={n:,}){marca}")
+    return 0
+
+
 def cmd_test_telegram(args: argparse.Namespace) -> int:
     """Comprueba la configuracion de Telegram enviando un mensaje de prueba."""
     from betbot.alerts.telegram import TelegramAlerter
@@ -1441,6 +1540,24 @@ def main(argv: list[str] | None = None) -> int:
     p_col.add_argument("--stats", action="store_true", help="estado del archivo")
     p_col.add_argument("--db", default="data/odds_archive.db")
     p_col.set_defaults(func=cmd_collect)
+
+    p_ip = sub.add_parser("ingest-players",
+                          help="estadisticas semanales de jugador de NFL (nflverse)")
+    p_ip.add_argument("--from", dest="desde", type=int, default=1999)
+    p_ip.add_argument("--to", dest="hasta", type=int, default=2026)
+    p_ip.add_argument("--stats", action="store_true", help="estado de la base")
+    p_ip.add_argument("--db", default="data/players.db")
+    p_ip.set_defaults(func=cmd_ingest_players)
+
+    p_bp = sub.add_parser("backtest-props",
+                          help="valida el modelo de props (NO mide si gana al mercado)")
+    p_bp.add_argument("--desde", type=int, default=2010,
+                      help="primera temporada evaluada; las previas solo entrenan")
+    p_bp.add_argument("--decay", type=float, default=0.90)
+    p_bp.add_argument("--calibracion", action="store_true",
+                      help="tabla de calibracion detallada")
+    p_bp.add_argument("--db", default="data/players.db")
+    p_bp.set_defaults(func=cmd_backtest_props)
 
     p_tg = sub.add_parser("test-telegram", help="comprueba las alertas de Telegram")
     p_tg.set_defaults(func=cmd_test_telegram)

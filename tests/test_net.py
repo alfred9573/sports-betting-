@@ -192,3 +192,78 @@ def test_429_is_retried(tmp_path):
             "https://x.test/a"
         )
     assert mock.call_count == 3
+
+
+# --- bundle declarado por entorno -----------------------------------------
+
+def test_bundle_del_entorno_tiene_prioridad(tmp_path, monkeypatch):
+    """Un proxy con CA propia debe ganarle a certifi, no al reves."""
+    from betbot import net
+
+    ca = tmp_path / "corp.crt"
+    ca.write_text("")
+    monkeypatch.setenv("SSL_CERT_FILE", str(ca))
+    monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
+    assert net.bundle_configurado() == str(ca)
+
+
+def test_requests_ca_bundle_tambien_vale(tmp_path, monkeypatch):
+    from betbot import net
+
+    ca = tmp_path / "corp.crt"
+    ca.write_text("")
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", str(ca))
+    assert net.bundle_configurado() == str(ca)
+
+
+def test_ruta_inexistente_se_ignora(monkeypatch):
+    """Una variable vieja apuntando a un fichero borrado no debe romper nada."""
+    from betbot import net
+
+    monkeypatch.setenv("SSL_CERT_FILE", "/no/existe/ca.crt")
+    monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
+    assert net.bundle_configurado() is None
+
+
+def test_sin_variables_no_hay_bundle(monkeypatch):
+    from betbot import net
+
+    for v in net.VARS_BUNDLE:
+        monkeypatch.delenv(v, raising=False)
+    assert net.bundle_configurado() is None
+
+
+def _bundle_real() -> str | None:
+    """Un bundle de CAs valido de verdad, para poder cargarlo sin que falle."""
+    import ssl
+
+    try:
+        import certifi
+
+        return certifi.where()
+    except ImportError:
+        return ssl.get_default_verify_paths().cafile
+
+
+def test_el_contexto_siempre_verifica(monkeypatch):
+    """La propiedad que no se puede perder, con y sin bundle declarado."""
+    import ssl
+
+    import pytest
+
+    from betbot import net
+
+    ca = _bundle_real()
+    if not ca:
+        pytest.skip("no hay bundle de CAs disponible en este sistema")
+    for env in ({"SSL_CERT_FILE": ca}, {}):
+        for v in net.VARS_BUNDLE:
+            monkeypatch.delenv(v, raising=False)
+        for k, val in env.items():
+            monkeypatch.setenv(k, val)
+        net.ssl_context.cache_clear()
+        ctx = net.ssl_context()
+        assert ctx.verify_mode == ssl.CERT_REQUIRED
+        assert ctx.check_hostname is True
+    net.ssl_context.cache_clear()
