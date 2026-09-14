@@ -219,17 +219,40 @@ se convierte en **-7,4%** en un parlay de 4.
 
 ---
 
+## 9. Line shopping: bloqueado por acceso, no por método
+
+Medido en vivo con `survey` sobre el feed real de The Odds API (28 casas,
+regiones `us,eu`):
+
+```
+NO APARECEN en el feed: bet365, betcris, caliente, codere
+Filtrado a TUS casas: 0 de 1 discrepancias caen donde puedes apostar.
+```
+
+Ninguna de las casas accesibles desde México está en el feed. Las 28 que sí
+están son estadounidenses reguladas (draftkings, fanduel, betmgm, betrivers),
+offshore (bovada, betonlineag, betus, mybookieag), europeas (betsson, tipico_de,
+unibet, williamhill), exchanges (betfair, matchbook) y sharps (pinnacle,
+onexbet, marathonbet).
+
+**La estrategia requiere dos cosas simultáneas**: un libro sharp de referencia
+(hay varios) y un libro blando donde apostar que se quede atrás. Lo segundo es
+lo que falta: los blandos del feed son los regulados de EE.UU., inaccesibles
+desde México.
+
+No es un fallo de modelado ni de datos. Es que **no se puede cobrar una
+diferencia de precio en una casa donde no tienes cuenta.**
+
 ## Lo que queda vivo
 
-**Line shopping** (`ev/lineshop.py`): cobrar la diferencia cuando una casa
-blanda tarda en mover su línea. No exige predecir mejor que nadie.
+Nada, con las casas disponibles desde México.
 
-- **No se ha podido backtestear**: haría falta histórico de odds de varias casas
-  simultáneas y no existe gratis.
-- Es más fuerte en totales y hándicap, precisamente porque ahí no hay nada más
-  que capturar.
-- Se mide en vivo con CLV. `betbot survey` estima si la oportunidad existe
-  gastando 3 créditos.
+`ev/lineshop.py` sigue implementado y funcional. Si en algún momento se tiene
+cuenta en una casa que el feed cubra, el sistema funciona tal cual: `survey`
+mide la oportunidad, `scan --strategy lineshop` emite las señales y `close`
+captura los cierres para medir CLV.
+
+El requisito no es técnico, es de acceso.
 
 ## Lo que no se pudo probar por falta de datos
 
