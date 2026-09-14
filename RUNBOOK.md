@@ -528,6 +528,44 @@ con línea de apertura y de cierre. En NFL eso son meses. Mirar antes es leer
 ruido y convencerse de algo falso, que es exactamente el error que este
 proyecto lleva evitando desde el principio.
 
+## 5f. Props: estadísticas de jugador y validación del modelo
+
+```bash
+# 27 temporadas de estadísticas semanales de jugador (~500k líneas, ~1 min)
+.venv/bin/python -m betbot.cli ingest-players --from 1999 --to 2026
+
+# estado de la base
+.venv/bin/python -m betbot.cli ingest-players --stats
+
+# validar el modelo (tarda ~4 min, no toca la API)
+.venv/bin/python -m betbot.cli backtest-props --calibracion
+```
+
+Durante la temporada, refrescar solo el año en curso es suficiente y es
+idempotente:
+
+```bash
+.venv/bin/python -m betbot.cli ingest-players --from 2026 --to 2026
+```
+
+**Cómo leer la salida, que es donde está la trampa.** `backtest-props` mide si
+el modelo describe bien al jugador: si dice 30%, ¿pasa el 30% de las veces? Los
+deciles del PIT deben rondar 10.0. **No** mide si le ganas al mercado — para eso
+harían falta líneas históricas de props, que no existen.
+
+El Brier de ~0.23 frente al 0.25 de una moneda **no es señal de ventaja**: las
+líneas sintéticas se colocan a ±15% de la propia proyección del modelo, así que
+por construcción las separa bien. Mide consistencia interna. Si algún día lees
+ese número como rendimiento esperado, te estarás engañando.
+
+**Lo que sí es real y conviene recordar:** el modelo está condicionado a que el
+jugador juegue (solo hay datos de quien saltó al campo), mientras que el libro sí
+precia la lesión y el descanso. Por eso tus probabilidades de over son
+sistemáticamente optimistas frente a las suyas. Y `player_receptions` sobreestima
+en la cola alta (dice 63%, pasa 58%) de forma estable en dos eras distintas: el
+código lo marca como `COLA_ALTA_DUDOSA` en vez de taparlo con una corrección que
+no funciona.
+
 ## 6. Dinero de papel: qué mirar y cuándo decidir
 
 Apunta las señales en papel. No muevas dinero real todavía.

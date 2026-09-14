@@ -57,6 +57,44 @@ PROYECCION_MINIMA: dict[str, float] = {
 }
 
 
+# Correccion de calibracion por mercado, en espacio logit: p' = sig(a*logit(p)).
+# a<1 encoge hacia 0.5, a>1 estira. CADA VALOR SE AJUSTO EN 2010-2017 Y SE
+# VALIDO EN 2018-2026; solo esta aqui el que mejoro en holdout.
+#
+#   player_pass_yds       a=1.10 en train -> holdout 0.6587 -> 0.6589  (empeora)
+#   player_pass_tds       a=0.84 en train -> holdout 0.6630 -> 0.6608  (mejora)
+#   player_rush_yds       a=1.00                                       (nada que hacer)
+#   player_reception_yds  a=0.96 en train -> holdout 0.6662 -> 0.6663  (empeora)
+#   player_receptions     a=0.90 en train -> holdout 0.6653 -> 0.6652  (irrelevante)
+#
+# Los tres mercados de yardas salen en a~1.00: el procedimiento no encuentra
+# nada donde no habia defecto, que es la mejor senal de que no esta inventando.
+#
+# RECEPCIONES SE QUEDA SIN CORREGIR A PROPOSITO. Su mala calibracion en la cola
+# alta (63.2% -> 57.8%) es real y estable en las dos eras, pero un parametro
+# global no la arregla: encoger corrige el extremo y estropea los cubos medios,
+# que van en sentido contrario (33.6% -> 35.1%). El defecto tiene forma, no es
+# sobreconfianza uniforme. Meter el 0.90 porque "mejora" 0.0001 en log-loss,
+# con el Brier idendico, seria anadir una palanca que no hace nada.
+CALIBRACION: dict[str, float] = {
+    "player_pass_tds": 0.84,
+}
+
+# Mercados cuya probabilidad alta NO es de fiar aunque el modelo la emita. Es un
+# aviso, no un filtro: lo consume quien decide si apostar.
+COLA_ALTA_DUDOSA: frozenset[str] = frozenset({"player_receptions"})
+
+
+def _corrige(p: float, mercado: str) -> float:
+    """Aplica la correccion de calibracion del mercado, si tiene."""
+    a = CALIBRACION.get(mercado, 1.0)
+    if a == 1.0:
+        return p
+    p = min(max(p, 1e-6), 1.0 - 1e-6)
+    z = math.log(p / (1.0 - p))
+    return 1.0 / (1.0 + math.exp(-a * z))
+
+
 @dataclass(frozen=True)
 class Proyeccion:
     """Proyeccion puntual mas la distribucion empirica que la envuelve."""
@@ -64,6 +102,12 @@ class Proyeccion:
     media: float
     cocientes: tuple[float, ...]   # ordenados: real/proyectado de casos pasados
     n_partidos: int                # cuantos partidos del jugador la sustentan
+    mercado: str = ""              # para saber que correccion de calibracion toca
+
+    @property
+    def cola_alta_dudosa(self) -> bool:
+        """Si este mercado sobreestima en la cola alta pese a la correccion."""
+        return self.mercado in COLA_ALTA_DUDOSA
 
     def prob_over(self, linea: float) -> float:
         """P(resultado > linea).
@@ -86,7 +130,7 @@ class Proyeccion:
         p = (n - i) / n
         # Suavizado de Laplace: con muestra finita, una cola vacia daria 0.0 o
         # 1.0, y una probabilidad de 0 o 1 en una apuesta es siempre mentira.
-        return (p * n + 0.5) / (n + 1.0)
+        return _corrige((p * n + 0.5) / (n + 1.0), self.mercado)
 
     def prob_under(self, linea: float) -> float:
         return 1.0 - self.prob_over(linea)
@@ -120,6 +164,11 @@ class Proyeccion:
         uniforme: PIT = F(x-) + u * (F(x) - F(x-)). Con `u` fijo a 0.5 se
         obtiene el punto medio, determinista; el backtest pasa un `u` sorteado
         con semilla fija para poder reproducirlo.
+
+        NO lleva la correccion de calibracion de `prob_over`, y es deliberado:
+        el PIT es el diagnostico de la distribucion CRUDA. Corregirlo aqui
+        tambien seria taparse los ojos, porque el histograma dejaria de mostrar
+        el defecto que la correccion intenta compensar.
         """
         menor, menor_igual = self._acumuladas(real)
         return menor + u * (menor_igual - menor)
@@ -197,7 +246,9 @@ class PropsModel:
         cocientes = self._cocientes.get(clave)
         if not cocientes or len(cocientes) < self.min_cocientes:
             return None
-        return Proyeccion(media=media, cocientes=tuple(cocientes), n_partidos=n)
+        return Proyeccion(
+            media=media, cocientes=tuple(cocientes), n_partidos=n, mercado=mercado
+        )
 
     # -- aprendizaje --------------------------------------------------------
 

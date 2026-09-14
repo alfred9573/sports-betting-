@@ -291,6 +291,95 @@ varios meses se pueda plantear un backtest de props o de line shopping que hoy
 es literalmente imposible. Resultado esperado, con honestidad: puede
 perfectamente ser que tampoco haya nada.
 
+## 11. Props de jugador: la via se reabre a medias
+
+El plan de odds SI incluye props (verificado en vivo: 808 precios en un solo
+partido, los seis mercados del catalogo). Eso reabre lo que estaba dado por
+cerrado, pero solo a medias: la API da el PRECIO, no el historico. Sigue sin
+existir archivo de lineas pasadas de props.
+
+Lo que si existe es el rendimiento historico de jugador: nflverse publica
+lineas semanales de 1999 a la temporada en curso, mismo esquema de 150 columnas
+en las 27 temporadas. Ingeridas 476.669 filas de 11.492 jugadores.
+
+Eso permite responder la pregunta PREVIA —¿describe bien el modelo al
+jugador?— aunque no la de fondo —¿se equivoca el mercado?
+
+### Calibracion del modelo (walk-forward estricto, 108.000 predicciones)
+
+| Mercado | Predicciones | Desv. PIT | Brier | Log-loss |
+|---|---|---|---|---|
+| player_pass_yds | 8.446 | 0,38% | 0,2325 | 0,6576 |
+| player_pass_tds | 8.085 | 0,72% | 0,2335 | 0,6600 |
+| player_rush_yds | 14.107 | 0,35% | 0,2381 | 0,6689 |
+| player_reception_yds | 39.447 | 0,42% | 0,2379 | 0,6686 |
+| player_receptions | 38.215 | 0,36% | 0,2369 | 0,6665 |
+
+Los deciles del PIT rondan el 10% en los cinco mercados. La distribucion esta
+bien calibrada.
+
+**EL BRIER DE 0,23 NO ES EVIDENCIA DE VENTAJA.** Las lineas sinteticas se
+colocan a ±15% de la propia proyeccion del modelo, asi que por construccion el
+modelo las separa. Mide consistencia interna, no habilidad contra el mercado.
+Es el mismo tipo de numero bonito que ya engano una vez en el modelo de NFL.
+
+### PIT aleatorizado: un defecto de la metrica, no del modelo
+
+La primera corrida acusaba a `player_pass_tds` de estar roto (deciles 0,0 /
+0,0 / 27,6). Antes de tocar el modelo se miro el dato: los touchdowns de pase
+toman SIETE valores enteros. El PIT solo se reparte uniforme si la variable es
+continua; con soporte tan grueso el histograma sale deforme haga lo que haga el
+modelo. Aplicada la correccion estandar (Dawid 1984), la desviacion cae de
+4,29% a 0,72%.
+
+### Sobreconfianza en la cola alta: real en los conteos, ruido en las yardas
+
+| Mercado | Cubo 60-80% (2010-2017) | Cubo 60-80% (2018-2026) |
+|---|---|---|
+| player_pass_tds | 67,4% -> 64,2% | 68,1% -> 58,8% |
+| player_receptions | 63,2% -> 60,4% | 63,2% -> 57,8% |
+| player_pass_yds | 65,0% -> 66,9% | 65,2% -> 64,5% |
+
+Los dos mercados de CONTEO sobreestiman en las dos eras, mismo signo. El de
+yardas cambia de signo entre eras: ahi no hay defecto, es ruido, y corregirlo
+habria sido sobreajuste. Hay mecanismo que lo explica: los que fallan son los
+discretos, y la distribucion empirica de cocientes asume escala continua.
+
+### Correccion: ajustada en 2010-2017, validada en 2018-2026
+
+Un solo parametro en espacio logit, p' = sig(a * logit(p)).
+
+| Mercado | a optima | Holdout log-loss | Corregido | Veredicto |
+|---|---|---|---|---|
+| player_pass_yds | 1,10 | 0,6587 | 0,6589 | empeora |
+| player_pass_tds | 0,84 | 0,6630 | **0,6608** | **mejora** |
+| player_rush_yds | 1,00 | 0,6712 | 0,6712 | sin efecto |
+| player_reception_yds | 0,96 | 0,6662 | 0,6663 | empeora |
+| player_receptions | 0,90 | 0,6653 | 0,6652 | irrelevante |
+
+Los tres mercados de yardas salen en a~1,00: el procedimiento no encuentra nada
+donde no habia defecto, que es la mejor senal de que no esta inventando.
+
+Solo se aplica `player_pass_tds`. **Recepciones se deja sin corregir a
+proposito**: su mejora es de 0,0001 en log-loss con el Brier identico. El
+encogimiento global arregla la cola alta y estropea los cubos medios, que van
+en sentido contrario (33,6% -> 35,1%). El defecto tiene forma; no es
+sobreconfianza uniforme. Queda marcado como `COLA_ALTA_DUDOSA`, que avisa en
+vez de tapar.
+
+### Limite que no se puede corregir
+
+Solo hay fila para un jugador si JUGO. Todo el modelo esta condicionado a que
+salte al campo. El mercado si precia la baja por lesion, descanso o suplencia,
+de modo que la probabilidad de 'over' de este modelo es sistematicamente
+OPTIMISTA frente a la del libro. Sin datos de participacion no se corrige.
+
+### Lo que falta para saber si esto gana dinero
+
+Comparar estas probabilidades contra precios reales. Eso empieza ahora, con lo
+que `betbot collect` archive. Antes de varios cientos de props ya resueltas
+cualquier conclusion es ruido.
+
 ## Lo que queda vivo
 
 Nada, con las casas disponibles desde México.
@@ -306,7 +395,7 @@ El requisito no es técnico, es de acceso.
 
 | Idea | Qué falta |
 |---|---|
-| Props de jugadores | Líneas históricas de props (no se venden a particulares) |
+| Props de jugadores | Líneas históricas de props. El MODELO ya se valida con nflverse (§11); lo que falta es el precio pasado, que se archiva desde ahora |
 | Line shopping | Odds históricas de varias casas simultáneas |
 | Apuestas en vivo | Odds históricas in-play |
 | Parlays de misma jugada | Precios históricos de SGP y su ajuste por correlación |

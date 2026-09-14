@@ -264,3 +264,75 @@ def test_brier_y_logloss_premian_al_modelo_acertado():
     malo.prob_y_resultado = [(0.1, True)] * 100
     assert bueno.brier < malo.brier
     assert bueno.log_score_medio < malo.log_score_medio
+
+
+# --- correccion de calibracion --------------------------------------------
+
+def test_la_correccion_solo_toca_los_mercados_validados():
+    """Los tres mercados de yardas no llevan correccion: no tenian defecto."""
+    from betbot.models.props import CALIBRACION
+
+    assert set(CALIBRACION) == {"player_pass_tds"}
+    assert CALIBRACION["player_pass_tds"] < 1.0   # encoge hacia la base
+
+
+def test_la_correccion_encoge_hacia_la_mitad():
+    from betbot.models.props import _corrige
+
+    assert _corrige(0.80, "player_pass_tds") < 0.80
+    assert _corrige(0.20, "player_pass_tds") > 0.20
+    assert _corrige(0.50, "player_pass_tds") == pytest.approx(0.50)
+
+
+def test_sin_correccion_la_probabilidad_pasa_intacta():
+    from betbot.models.props import _corrige
+
+    for p in (0.1, 0.5, 0.9):
+        assert _corrige(p, "player_rush_yds") == p
+        assert _corrige(p, "mercado_inventado") == p
+
+
+def test_la_correccion_llega_a_prob_over():
+    cocientes = tuple(sorted(i / 100 for i in range(1, 201)))
+    crudo = Proyeccion(media=100.0, cocientes=cocientes, n_partidos=10, mercado="")
+    corregido = Proyeccion(
+        media=100.0, cocientes=cocientes, n_partidos=10, mercado="player_pass_tds"
+    )
+    # En una linea baja la probabilidad de over es alta; la correccion la baja.
+    assert corregido.prob_over(40.0) < crudo.prob_over(40.0)
+    assert corregido.prob_over(40.0) > 0.5
+
+
+def test_over_y_under_siguen_sumando_uno_con_correccion():
+    cocientes = tuple(sorted(i / 100 for i in range(1, 201)))
+    p = Proyeccion(media=100.0, cocientes=cocientes, n_partidos=10,
+                   mercado="player_pass_tds")
+    for linea in (30.0, 100.0, 170.0):
+        assert p.prob_over(linea) + p.prob_under(linea) == pytest.approx(1.0)
+
+
+def test_el_pit_no_lleva_correccion():
+    """El PIT diagnostica la distribucion cruda; corregirlo ocultaria el defecto."""
+    cocientes = tuple(sorted(i / 100 for i in range(1, 201)))
+    crudo = Proyeccion(media=100.0, cocientes=cocientes, n_partidos=10, mercado="")
+    corregido = Proyeccion(
+        media=100.0, cocientes=cocientes, n_partidos=10, mercado="player_pass_tds"
+    )
+    assert crudo.cuantil_del_resultado(150.0) == corregido.cuantil_del_resultado(150.0)
+
+
+def test_recepciones_marcado_como_cola_alta_dudosa():
+    """Defecto real que un parametro global no arregla: se avisa, no se tapa."""
+    p = Proyeccion(media=5.0, cocientes=(1.0,), n_partidos=10,
+                   mercado="player_receptions")
+    assert p.cola_alta_dudosa
+    assert not Proyeccion(media=5.0, cocientes=(1.0,), n_partidos=10,
+                          mercado="player_rush_yds").cola_alta_dudosa
+
+
+def test_proyectar_etiqueta_el_mercado():
+    m = PropsModel(min_cocientes=1)
+    for _ in range(50):
+        m.observar([250.0] * 10, "QB", "player_pass_yds", 250.0)
+    proy = m.proyectar([250.0] * 10, "QB", "player_pass_yds")
+    assert proy is not None and proy.mercado == "player_pass_yds"
