@@ -164,7 +164,46 @@ Inferir la calidad del lanzador desde los resultados del equipo: **+0.0004** de
 log-loss en holdout. Ruido. Ver `models/pitchers.py` para el detalle y por qué
 harían falta proyecciones tipo FIP/SIERA.
 
-## 7. Parlays
+## 7. Copiar a los tipsters de mayor yield
+
+Hipótesis: si hay rankings de tipsters con yields del 15-25%, copiar su lógica
+debería funcionar. Simulado: **5.000 tipsters, todos con EV real de -3%, o sea
+ninguno con habilidad**, 300 apuestas cada uno a cuota 2.00.
+
+| Puesto del ranking | Yield |
+|---|---|
+| #1 | **+20,0%** |
+| #10 | +14,7% |
+| #50 | +10,0% |
+| Mediana | -2,7% |
+
+45 de 5.000 (0,9%) superan el 10% de yield **sin tener ninguna ventaja**.
+
+La prueba definitiva es qué pasa después. El top-100 del primer periodo:
+
+| | Yield |
+|---|---|
+| Periodo 1 (por el que los elegiste) | **+11,0%** |
+| Periodo 2 (los mismos) | **-1,9%** |
+| Siguen en positivo | 36/100 |
+
+Regresan a la media exactamente como predice el azar.
+
+### El matiz que lo explica
+
+Un yield del 20% en 300 apuestas *sí* es significativo... **para un tipster
+elegido por adelantado** (t = 3,46). Pero elegir al mejor de 5.000 después de
+ver los resultados exige corregir por esas 5.000 comparaciones: el umbral sube
+de 1,96 a 4,42 sigmas, y el yield necesario pasa de ~11% a **25,5%**.
+
+El #1 de la simulación sacó 20%: por debajo de lo que haría falta. Era el máximo
+esperable del azar, no habilidad.
+
+**Regla práctica**: pregúntate a cuántos candidatos viste antes de quedarte con
+ese. Un ranking ya hizo la selección por ti, y solo muestra a los que
+sobrevivieron — los que quebraron no aparecen.
+
+## 8. Parlays
 
 No requieren backtest: la matemática es cerrada. Un parlay multiplica el EV por
 pata — `EV_parlay = (1 + EV_pata)^n - 1`.
