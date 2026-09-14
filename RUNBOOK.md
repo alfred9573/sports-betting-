@@ -489,7 +489,8 @@ de cuotas recortadas). `collect` resuelve eso por la vía lenta: guarda cada
 precio que ve, todos los días, hasta que haya muestra.
 
 ```bash
-# Un barrido: 3 mercados x 1 región = 3 créditos
+# Un barrido: 3 mercados x N regiones. Con ODDS_REGIONS=us,eu son 6 créditos,
+# no 3: la API multiplica por mercados Y por regiones.
 .venv/bin/python -m betbot.cli collect --sport nfl
 
 # Ver qué llevas acumulado (gratis, no toca la API)
@@ -509,12 +510,18 @@ el `--dry-run`: te dice cuántos créditos costaría. Si al quitar `--dry-run`
 recibes un 422, ese es el plan diciendo que no las cubre, y el comando corta
 ahí en vez de quemar cuota repitiendo el mismo error diez veces.
 
-**Automatizarlo.** Dos barridos al día por deporte son ~180 créditos/mes, lo
-que entra en el plan gratuito de 500 *solo si no corres nada más*:
+**Automatizarlo.** Dos barridos al día por deporte son ~180 créditos/mes *por
+región*: con `us,eu` son ~360, y eso ya no entra en el plan gratuito de 500 si
+corres cualquier otra cosa. El instalador lee tu `ODDS_REGIONS` y te imprime el
+total antes de tocar nada:
 
 ```bash
 bash scripts/install-cron.sh --colecta nfl
 ```
+
+Si no cabe: baja a un barrido diario, o reduce `ODDS_REGIONS` a `us` en el
+`.env`. Ojo con lo segundo — quitar `eu` te quita casas del archivo, incluidos
+los exchanges, que son la mejor referencia de precio sin vig que hay en el feed.
 
 **Cuándo mirar los datos.** No antes de varios cientos de eventos ya jugados
 con línea de apertura y de cierre. En NFL eso son meses. Mirar antes es leer

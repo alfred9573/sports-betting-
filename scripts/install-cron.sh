@@ -13,6 +13,18 @@ WRAP="$REPO/scripts/betbot-cron.sh"
 MARCA="# --- betbot ---"
 FIN="# --- fin betbot ---"
 
+# CUANTAS REGIONES. La cuota de The Odds API se cobra como
+# n_mercados * n_REGIONES, no por llamada. Con regions=us,eu cada barrido de 3
+# mercados cuesta 6 creditos, no 3. Calcular el presupuesto ignorando este
+# multiplicador es subestimarlo a la mitad, asi que se lee de tu .env.
+REGIONES="us"
+if [ -f "$REPO/.env" ]; then
+    LINEA="$(grep -E '^ODDS_REGIONS=' "$REPO/.env" | tail -1 | cut -d= -f2- | tr -d '\"'"'"' ')"
+    [ -n "$LINEA" ] && REGIONES="$LINEA"
+fi
+N_REG=$(printf '%s' "$REGIONES" | awk -F, '{print NF}')
+[ "$N_REG" -lt 1 ] && N_REG=1
+
 COLECTA=0
 DEPORTES=()
 for arg in "$@"; do
@@ -48,9 +60,9 @@ for d in "${DEPORTES[@]}"; do
 # Escaneo por modelo, 3 veces al dia (~90 creditos/mes por deporte)
 $MINUTO 9,15,21 * * * $WRAP scan --sport $d
 # Escaneo por desacuerdo entre casas, cada 2h. Cubre totales y handicap, que es
-# donde esta estrategia es mas fuerte. Cuesta 3 creditos por ejecucion (la cuota
-# se cobra por mercado), asi que ~1080/mes por deporte: subelo o bajalo segun tu
-# plan. Con el plan gratuito de 500, deja SOLO UN deporte y sube el intervalo.
+# donde esta estrategia es mas fuerte. Cuesta 3 mercados x $N_REG region(es) =
+# $((3 * N_REG)) creditos por ejecucion, o sea ~$((360 * N_REG))/mes por deporte.
+# Con el plan gratuito de 500, deja SOLO UN deporte y sube el intervalo.
 $((MINUTO + 1)) */2 * * * $WRAP scan --sport $d --strategy lineshop
 # Reingesta semanal de resultados (martes 6:00). Sin esto los ratings envejecen.
 0 6 * * 2 $WRAP ingest --sport $d $F --from \$(date +\\%Y) --to \$(date +\\%Y) --force"
@@ -58,7 +70,9 @@ $((MINUTO + 1)) */2 * * * $WRAP scan --sport $d --strategy lineshop
         BLOQUE="$BLOQUE
 # Archivado de lineas: NO apuesta ni alerta, solo guarda precios para poder
 # backtestear mas adelante lo que hoy no tiene historico (props, line shopping).
-# Dos barridos al dia x 3 creditos = ~180 creditos/mes por deporte.
+# Dos barridos al dia x $((3 * N_REG)) creditos = ~$((180 * N_REG))/mes por
+# deporte. Si no cabe en tu plan, baja a un solo barrido diario (quita el 20)
+# o reduce ODDS_REGIONS a una sola region en el .env.
 $((MINUTO + 2)) 8,20 * * * $WRAP collect --sport $d"
     fi
     MINUTO=$((MINUTO + 3))
@@ -82,19 +96,24 @@ echo "$BLOQUE"
 echo "----------------------------------------"
 echo
 echo "Deportes: ${DEPORTES[*]}"
-SOLO_MODELO=$(( ${#DEPORTES[@]} * 90 ))
-CON_LINESHOP=$(( SOLO_MODELO + ${#DEPORTES[@]} * 1080 ))
+SOLO_MODELO=$(( ${#DEPORTES[@]} * 90 * N_REG ))
+LINESHOP=$(( ${#DEPORTES[@]} * 360 * N_REG ))
+TOTAL=$(( SOLO_MODELO + LINESHOP ))
+echo "Regiones configuradas: $REGIONES ($N_REG) -- la cuota se multiplica por esto."
 echo "Presupuesto estimado de creditos al mes:"
 echo "  escaneo por modelo      ~${SOLO_MODELO}"
-echo "  + escaneo lineshop      ~${CON_LINESHOP} en total"
-echo "  mas los cierres (variable)."
+echo "  escaneo lineshop        ~${LINESHOP}"
+COLECTA_COSTE=0
 if [ "$COLECTA" -eq 1 ]; then
-    echo "  + archivado de lineas    ~$(( ${#DEPORTES[@]} * 180 ))"
+    COLECTA_COSTE=$(( ${#DEPORTES[@]} * 180 * N_REG ))
+    echo "  archivado de lineas     ~${COLECTA_COSTE}"
 fi
+echo "  TOTAL                   ~$(( TOTAL + COLECTA_COSTE )) mas los cierres (variable)."
 echo
 echo "OJO: el plan gratuito son 500/mes. Con lineshop activo NO cabe."
 echo "Opciones: quitar la linea de lineshop del crontab, subir su intervalo,"
-echo "dejar un solo deporte, o pasar a un plan de pago."
+echo "dejar un solo deporte, reducir ODDS_REGIONS a una sola region en el .env,"
+echo "o pasar a un plan de pago."
 echo
 read -r -p "¿Instalar? [s/N] " RESP
 case "$RESP" in
