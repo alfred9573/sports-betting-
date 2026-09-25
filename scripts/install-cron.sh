@@ -285,5 +285,7 @@ echo
 echo "Instalado. Comprueba con:  crontab -l"
 echo "Logs en:  $REPO/logs/"
 echo
-echo "macOS: si las tareas no se ejecutan, dale a cron acceso a disco en"
-echo "Ajustes > Privacidad y seguridad > Acceso total al disco > + > /usr/sbin/cron"
+if [ "$(uname)" = "Darwin" ]; then
+    echo "macOS: si las tareas no se ejecutan, dale a cron acceso a disco en"
+    echo "Ajustes > Privacidad y seguridad > Acceso total al disco > + > /usr/sbin/cron"
+fi

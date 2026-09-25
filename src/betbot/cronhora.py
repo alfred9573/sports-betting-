@@ -109,10 +109,16 @@ def main() -> int:
     d = desfase_minutos()
     texto = sys.stdin.read()
     print(convertir_bloque(texto, d))
+    zona = time.strftime("%Z")
     if d:
         signo = "+" if d > 0 else "-"
-        print(f"Horarios convertidos de Ciudad de Mexico a la hora de esta maquina "
-              f"({signo}{abs(d) // 60}h{abs(d) % 60:02d}).", file=sys.stderr)
+        print(f"Hora de esta maquina: {zona}. Horarios convertidos desde Ciudad de "
+              f"Mexico ({signo}{abs(d) // 60}h{abs(d) % 60:02d}).", file=sys.stderr)
+    else:
+        # Decirlo tambien cuando no se convierte: si no, "no convirtio" y "no
+        # hacia falta convertir" se ven exactamente igual en la salida.
+        print(f"Hora de esta maquina: {zona}, igual que Ciudad de Mexico. "
+              f"No hace falta convertir los horarios.", file=sys.stderr)
     if tiene_horario_de_verano():
         print("AVISO: esta maquina cambia de horario en verano/invierno. La conversion\n"
               "se hizo con la hora de HOY y se desfasara una hora con el cambio. En un\n"
