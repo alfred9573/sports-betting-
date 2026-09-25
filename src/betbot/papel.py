@@ -32,6 +32,7 @@ lo eliminan.
 from __future__ import annotations
 
 import logging
+import math
 import re
 import sqlite3
 import statistics
@@ -296,10 +297,59 @@ CREATE TABLE IF NOT EXISTS papel (
     precio_cierre REAL,
     clv           REAL,
     calificado_en TEXT,
+    unidades      REAL NOT NULL DEFAULT 1.0,
+    cuota_minima  REAL,
     UNIQUE (event_id, market, player_id, lado, point)
 );
 CREATE INDEX IF NOT EXISTS idx_papel_estado ON papel (estado, commence);
 """
+
+# Columnas anadidas despues de la primera version. Una base creada antes (la del
+# servidor ya existe) se migra en sitio: borrarla perderia apuestas apuntadas.
+MIGRACIONES = [
+    ("unidades", "ALTER TABLE papel ADD COLUMN unidades REAL NOT NULL DEFAULT 1.0"),
+    ("cuota_minima", "ALTER TABLE papel ADD COLUMN cuota_minima REAL"),
+]
+
+
+# ---------------------------------------------------------------------------
+# Tamano de la apuesta y cuota minima
+# ---------------------------------------------------------------------------
+
+UNIDAD_PCT = 0.01   # 1 unidad = 1% del bankroll
+
+
+def unidades_para(
+    p: float, precio: float, fraccion_kelly: float = 0.25, tope: float = 2.0,
+    paso: float = 0.25,
+) -> float:
+    """Unidades a apostar: Kelly fraccionado, con tope, redondeado hacia ABAJO.
+
+    Un cuarto de Kelly porque la probabilidad del modelo no es la verdadera: con
+    Kelly completo, un modelo que sobreestima un poco apuesta de mas justo donde
+    mas se equivoca. El tope de 2 unidades limita el dano de una sola linea mal
+    emparejada o vieja. Se redondea hacia abajo, al cuarto de unidad, para no
+    apostar nunca por encima de lo que dice la formula; con EV positivo el
+    minimo es un cuarto.
+    """
+    from betbot.ev.engine import kelly_fraction
+
+    pct = kelly_fraction(p, precio, fraccion_kelly)
+    if pct <= 0:
+        return 0.0
+    u = min(pct / UNIDAD_PCT, tope)
+    return max(paso, math.floor(u / paso) * paso)
+
+
+def cuota_minima(p: float, min_ev: float) -> float:
+    """Cuota decimal por debajo de la cual la apuesta ya no tiene el EV minimo.
+
+    Es lo que hace el aviso util en cualquier casa: el precio del mensaje es la
+    mediana de las casas del feed, y la tuya casi nunca paga exactamente eso.
+    Solo vale para la MISMA linea (4.5 no es 5.5).
+    """
+    return (1.0 + min_ev) / p
+
 
 ESTADOS_FINALES = ("ganada", "perdida", "nula", "sin_calificar")
 
@@ -310,6 +360,10 @@ class RegistroPapel:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as c:
             c.executescript(SCHEMA)
+            existentes = {r[1] for r in c.execute("PRAGMA table_info(papel)")}
+            for columna, ddl in MIGRACIONES:
+                if columna not in existentes:
+                    c.execute(ddl)
 
     @contextmanager
     def _conn(self):
@@ -322,19 +376,20 @@ class RegistroPapel:
             conn.close()
 
     def apuntar(self, sport: str, linea: LineaProp, player_id: str, p: float,
-                ev: float, ahora: datetime, atraso: int = 0) -> bool:
+                ev: float, ahora: datetime, atraso: int = 0, unidades: float = 1.0,
+                cuota_min: float | None = None) -> bool:
         """Apunta una apuesta. False si ya estaba (se queda el PRIMER precio)."""
         with self._conn() as c:
             try:
                 c.execute(
                     """INSERT INTO papel (sport, event_id, commence, partido, market,
                        jugador, player_id, lado, point, precio, precio_max, n_casas,
-                       p_modelo, ev, decidido_en, atraso)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       p_modelo, ev, decidido_en, atraso, unidades, cuota_minima)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (sport, linea.event_id, linea.commence.isoformat(), linea.partido,
                      linea.market, linea.jugador, player_id, linea.lado, linea.point,
                      linea.precio, linea.precio_max, linea.n_casas, p, ev,
-                     ahora.isoformat(), atraso),
+                     ahora.isoformat(), atraso, unidades, cuota_min),
                 )
                 return True
             except sqlite3.IntegrityError:
@@ -368,10 +423,36 @@ class RegistroPapel:
 # Resumen
 # ---------------------------------------------------------------------------
 
+def unidades_de(f) -> float:
+    """Unidades de una fila; las apuntadas antes de existir la columna valen 1."""
+    try:
+        u = f["unidades"]
+    except (KeyError, IndexError):
+        return 1.0
+    return 1.0 if u is None else float(u)
+
+
+def resultado_unidades(f) -> float:
+    """Ganancia en unidades de una apuesta cerrada (0 si nula o pendiente)."""
+    if f["estado"] == "ganada":
+        return unidades_de(f) * (f["precio"] - 1.0)
+    if f["estado"] == "perdida":
+        return -unidades_de(f)
+    return 0.0
+
+
 def resumir(filas: list) -> dict:
-    """ROI a stake plano de 1 y CLV. Sin maquillaje: incluye el tamano de muestra."""
+    """ROI a stake plano, ROI en unidades y CLV. Incluye el tamano de muestra.
+
+    Se dan los dos ROI porque miden cosas distintas: el plano dice si el modelo
+    elige bien; el de unidades, si ademas el tamano de cada apuesta ayuda o
+    estorba. Si el plano es positivo y el de unidades negativo, el modelo esta
+    poniendo mas dinero justo donde se equivoca.
+    """
     cerradas = [f for f in filas if f["estado"] in ("ganada", "perdida")]
     ganancia = sum((f["precio"] - 1.0) if f["estado"] == "ganada" else -1.0 for f in cerradas)
+    arriesgadas = sum(unidades_de(f) for f in cerradas)
+    ganancia_u = sum(resultado_unidades(f) for f in cerradas)
     con_clv = [f["clv"] for f in filas if f["clv"] is not None and f["estado"] != "nula"]
     return {
         "apuntadas": len(filas),
@@ -382,6 +463,9 @@ def resumir(filas: list) -> dict:
         "sin_calificar": sum(1 for f in filas if f["estado"] == "sin_calificar"),
         "ganancia": ganancia,
         "roi": ganancia / len(cerradas) if cerradas else None,
+        "ganancia_u": ganancia_u,
+        "unidades_arriesgadas": arriesgadas,
+        "roi_u": ganancia_u / arriesgadas if arriesgadas else None,
         "ev_medio": (sum(f["ev"] for f in cerradas) / len(cerradas)) if cerradas else None,
         "clv_medio": (sum(con_clv) / len(con_clv)) if con_clv else None,
         "clv_positivo": (sum(1 for x in con_clv if x > 0) / len(con_clv)) if con_clv else None,
@@ -409,6 +493,15 @@ def ahora_utc() -> datetime:
 # Orquestacion
 # ---------------------------------------------------------------------------
 
+@dataclass(frozen=True)
+class ApuestaNueva:
+    linea: LineaProp
+    p: float
+    ev: float
+    unidades: float
+    cuota_minima: float
+
+
 @dataclass
 class InformeGeneracion:
     lineas: int = 0
@@ -416,7 +509,7 @@ class InformeGeneracion:
     ya_apuntadas: int = 0
     sin_valor: int = 0
     descartes: dict[str, int] = field(default_factory=lambda: defaultdict(int))
-    nuevas: list[tuple] = field(default_factory=list)   # (linea, p, ev)
+    nuevas: list[ApuestaNueva] = field(default_factory=list)
 
     def descartar(self, motivo: str) -> None:
         self.descartes[motivo] += 1
@@ -425,6 +518,7 @@ class InformeGeneracion:
 def generar(
     adaptador, archivo: str | Path, registro: RegistroPapel, ahora: datetime,
     min_ev: float = 0.03, max_ev: float = 0.25, max_atraso: int = 1,
+    fraccion_kelly: float = 0.25, tope_unidades: float = 2.0,
 ) -> InformeGeneracion:
     """Apunta en papel las lineas vigentes con EV suficiente.
 
@@ -462,10 +556,12 @@ def generar(
         if ev > max_ev:
             inf.descartar(f"EV sospechoso (>{max_ev:.0%})")
             continue
+        unidades = unidades_para(v.p, linea.precio, fraccion_kelly, tope_unidades)
+        minima = cuota_minima(v.p, min_ev)
         if registro.apuntar(adaptador.sport, linea, emp.ficha.player_id, v.p, ev,
-                            ahora, atraso):
+                            ahora, atraso, unidades, minima):
             inf.apuntadas += 1
-            inf.nuevas.append((linea, v.p, ev))
+            inf.nuevas.append(ApuestaNueva(linea, v.p, ev, unidades, minima))
         else:
             inf.ya_apuntadas += 1
     return inf

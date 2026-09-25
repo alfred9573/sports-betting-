@@ -127,3 +127,17 @@ def test_reusa_el_token_guardado(tmp_path):
         raise AssertionError("no deberia volver a pedir el token")
 
     assert configurar(env=env, entrada=lambda _: "", secreto=secreto, llamar=tg) == 0
+
+
+def test_bankroll_se_guarda_y_se_lee(tmp_path, capsys):
+    from betbot.cli import main
+
+    env = tmp_path / ".env"
+    env.write_text("ODDS_API_KEY=abc\n")
+    assert main(["bankroll", "--env", str(env)]) == 0
+    assert "No hay bankroll" in capsys.readouterr().out
+    assert main(["bankroll", "700", "--env", str(env)]) == 0
+    assert "1 unidad = $7.00" in capsys.readouterr().out
+    assert leer_variable(env, "BANKROLL") == "700"
+    assert leer_variable(env, "ODDS_API_KEY") == "abc"
+    assert main(["bankroll", "0", "--env", str(env)]) == 2

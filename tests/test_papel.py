@@ -223,7 +223,10 @@ def test_generar_apunta_con_ev_y_no_duplica(archivo, tmp_path):
     ahora = KO - timedelta(hours=20)
     inf = generar(Falso(p=0.60), archivo, reg, ahora)       # 0.60 * 1.90 - 1 = +14%
     assert inf.apuntadas == 1
-    assert inf.nuevas[0][2] == pytest.approx(0.14)
+    nueva = inf.nuevas[0]
+    assert nueva.ev == pytest.approx(0.14)
+    assert nueva.cuota_minima == pytest.approx(1.03 / 0.60)
+    assert nueva.unidades == 2.0     # Kelly/4 = 3.9% -> tope de 2 u
     assert generar(Falso(p=0.60), archivo, reg, ahora).ya_apuntadas == 1
     (fila,) = reg.todas()
     assert fila["precio"] == pytest.approx(1.90)
@@ -304,3 +307,75 @@ def test_linea_prop_partido():
     ln = LineaProp("e", KO, "Kansas City Chiefs", "Denver Broncos", "m", "j", "Over",
                    1.5, 1.9, 1.9, 2)
     assert ln.partido == "Denver Broncos @ Kansas City Chiefs"
+
+
+# --- unidades y cuota minima ------------------------------------------------
+
+def test_unidades_cuarto_de_kelly_redondeado_hacia_abajo():
+    from betbot.papel import unidades_para
+
+    # p=0.55 @ 1.91: Kelly = (0.55*0.91-0.45)/0.91 = 5.55%; un cuarto = 1.39% -> 1.25 u
+    assert unidades_para(0.55, 1.91) == 1.25
+
+
+def test_unidades_con_tope():
+    from betbot.papel import unidades_para
+
+    assert unidades_para(0.70, 2.0) == 2.0
+
+
+def test_unidades_minimo_un_cuarto_si_hay_valor():
+    from betbot.papel import unidades_para
+
+    assert unidades_para(0.53, 1.91) == 0.25     # Kelly/4 ~ 0.4% -> no baja de 0.25
+
+
+def test_sin_valor_cero_unidades():
+    from betbot.papel import unidades_para
+
+    assert unidades_para(0.50, 1.91) == 0.0
+
+
+def test_cuota_minima_es_donde_el_ev_llega_al_umbral():
+    from betbot.papel import cuota_minima
+
+    minima = cuota_minima(0.60, 0.03)
+    assert 0.60 * minima - 1 == pytest.approx(0.03)
+
+
+def test_base_vieja_se_migra_sin_perder_apuestas(tmp_path):
+    import sqlite3
+
+    db = tmp_path / "p.db"
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE papel (id INTEGER PRIMARY KEY AUTOINCREMENT, sport TEXT NOT NULL,
+          event_id TEXT NOT NULL, commence TEXT NOT NULL, partido TEXT NOT NULL,
+          market TEXT NOT NULL, jugador TEXT NOT NULL, player_id TEXT NOT NULL,
+          lado TEXT NOT NULL, point REAL, precio REAL NOT NULL, precio_max REAL NOT NULL,
+          n_casas INTEGER NOT NULL, p_modelo REAL NOT NULL, ev REAL NOT NULL,
+          decidido_en TEXT NOT NULL, atraso INTEGER NOT NULL DEFAULT 0,
+          estado TEXT NOT NULL DEFAULT 'pendiente', real REAL, precio_cierre REAL,
+          clv REAL, calificado_en TEXT, UNIQUE (event_id, market, player_id, lado, point));
+        INSERT INTO papel (sport, event_id, commence, partido, market, jugador, player_id,
+          lado, point, precio, precio_max, n_casas, p_modelo, ev, decidido_en)
+          VALUES ('nfl','e','2026-09-13T17:00:00+00:00','a @ b','player_receptions',
+                  'Travis Kelce','k','Over',4.5,1.9,1.95,3,0.6,0.14,'2026-09-12');
+    """)
+    conn.commit()
+    conn.close()
+    (fila,) = RegistroPapel(db).todas()
+    assert fila["unidades"] == 1.0            # las viejas cuentan como 1 unidad
+    assert fila["jugador"] == "Travis Kelce"
+
+
+def test_resumen_en_unidades():
+    filas = [
+        {"estado": "ganada", "precio": 2.0, "ev": 0.05, "clv": 0.0, "unidades": 2.0},
+        {"estado": "perdida", "precio": 2.0, "ev": 0.05, "clv": 0.0, "unidades": 0.5},
+    ]
+    r = resumir(filas)
+    assert r["ganancia_u"] == pytest.approx(2.0 - 0.5)
+    assert r["unidades_arriesgadas"] == pytest.approx(2.5)
+    assert r["roi_u"] == pytest.approx(1.5 / 2.5)
+    assert r["roi"] == pytest.approx(0.0)      # a stake plano: una y una

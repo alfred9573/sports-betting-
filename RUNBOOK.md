@@ -662,6 +662,23 @@ encuentra solo tu chat y manda una prueba):
 betbot configurar-telegram
 ```
 
+**Cada apuesta llega en su propio mensaje**, en cuanto se decide, con lo
+necesario para ejecutarla: partido y hora, la línea, la cuota (mediana de las
+casas del feed), la **cuota mínima** y el **stake en unidades**. La cuota mínima
+es lo que hace útil el aviso en tu casa, que no está en el feed: si tu casa paga
+eso o más **en la misma línea**, la apuesta conserva su valor; si paga menos, no.
+
+Unidades: 1 unidad = 1% del bankroll, un cuarto de Kelly, tope de 2 unidades,
+redondeado hacia abajo al cuarto de unidad. Para ver también pesos:
+
+```bash
+betbot bankroll 700
+```
+
+El resumen da dos ROI: a stake plano (¿elige bien el modelo?) y en unidades
+(¿el tamaño de cada apuesta ayuda o estorba?). Si el primero es positivo y el
+segundo negativo, el modelo pone más dinero justo donde se equivoca.
+
 **Qué mirar y cuándo:** primero el **CLV medio**. Si durante las primeras
 ~100 apuestas es negativo, el modelo no le gana al cierre y el ROI no importa.
 Si es positivo y se mantiene hasta ~200-300 apuestas, ahí se puede hablar de

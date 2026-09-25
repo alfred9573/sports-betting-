@@ -1531,15 +1531,20 @@ def cmd_papel(args: argparse.Namespace) -> int:
     a la casa". Usa las lineas que archiva `collect --props`, asi que sin props
     archivadas no hay nada que apuntar.
     """
+    import os
     import time
 
-    from betbot.papel import RegistroPapel, ahora_utc, calificar, generar, resumir
+    from betbot.papel import UNIDAD_PCT, RegistroPapel, ahora_utc, calificar, generar, resumir
     from betbot.papel_deportes import AdaptadorNBA, AdaptadorNFL
-    from betbot.papel_mensajes import mensaje_calificacion, mensaje_generacion
+    from betbot.papel_mensajes import mensaje_apuesta, mensaje_calificacion, mensaje_generacion
 
     registro = RegistroPapel(args.registro)
     sport_key = Sport.NBA.value if args.sport == "nba" else Sport.NFL.value
     telegram = _telegram_para_papel() if args.telegram else None
+    settings = Settings.from_env()
+    # El equivalente en pesos solo se muestra si el bankroll esta puesto a
+    # proposito en el .env: el valor por defecto (1000) inventaria una cifra.
+    pesos_u = settings.bankroll * UNIDAD_PCT if os.getenv("BANKROLL") else None
 
     if not args.resumen:
         db = args.db or ("data/nba_players.db" if args.sport == "nba" else "data/players.db")
@@ -1566,13 +1571,24 @@ def cmd_papel(args: argparse.Namespace) -> int:
                 detalle, args.sport, resumir(registro.todas(sport_key))))
 
         inf = generar(adaptador, args.archivo, registro, ahora, min_ev=args.min_ev,
-                      max_atraso=args.max_atraso)
+                      max_atraso=args.max_atraso, fraccion_kelly=settings.kelly_fraction,
+                      tope_unidades=settings.max_stake_pct / UNIDAD_PCT)
+        # Cada apuesta sale en su propio mensaje en cuanto se decide, que es como
+        # tendra que funcionar con dinero real. Con muchas de golpe, las primeras
+        # van sueltas y el resto en el resumen, para no inundar el telefono.
+        enviadas = 0
+        if telegram:
+            for a in sorted(inf.nuevas, key=lambda a: (a.linea.commence, a.linea.partido)):
+                if enviadas >= MAX_MENSAJES_SUELTOS:
+                    break
+                telegram.send_plain(mensaje_apuesta(a, args.sport, pesos_u))
+                enviadas += 1
         # Con lineas se avisa siempre, haya o no apuestas: el mensaje es la prueba
         # de que el bot trabajo. Sin lineas solo si se pide (--avisar-vacio, el
         # del sabado): ese silencio es justo el fallo que hay que ver.
         if telegram and (inf.lineas or args.avisar_vacio):
             telegram.send_plain(mensaje_generacion(
-                inf, args.sport, resumir(registro.todas(sport_key))))
+                inf, args.sport, resumir(registro.todas(sport_key)), enviadas))
         print(f"Lineas de props vigentes: {inf.lineas:,} | apuntadas nuevas: {inf.apuntadas} "
               f"| ya apuntadas antes: {inf.ya_apuntadas} | sin valor: {inf.sin_valor:,}")
         if inf.descartes:
@@ -1581,12 +1597,14 @@ def cmd_papel(args: argparse.Namespace) -> int:
                 print(f"  {n:>6,}  {motivo}")
         if inf.nuevas:
             print("\nNuevas apuestas EN PAPEL (precio = mediana entre casas):")
-            for linea, p, ev in sorted(inf.nuevas, key=lambda x: x[0].commence):
-                pt = f" {linea.point:g}" if linea.point is not None else ""
-                print(f"  {linea.commence:%a %d %H:%M}Z  {linea.partido}")
-                print(f"      {linea.jugador} {linea.market.replace('player_', '')} "
-                      f"{linea.lado}{pt} @ {linea.precio:.2f} ({linea.n_casas} casas) | "
-                      f"modelo {p:.1%} | EV {ev:+.1%}")
+            for a in sorted(inf.nuevas, key=lambda a: a.linea.commence):
+                ln = a.linea
+                pt = f" {ln.point:g}" if ln.point is not None else ""
+                print(f"  {ln.commence:%a %d %H:%M}Z  {ln.partido}")
+                print(f"      {ln.jugador} {ln.market.replace('player_', '')} "
+                      f"{ln.lado}{pt} @ {ln.precio:.2f} (minima {a.cuota_minima:.2f}, "
+                      f"{ln.n_casas} casas) | modelo {a.p:.1%} | EV {a.ev:+.1%} | "
+                      f"{a.unidades:g} u")
         print()
 
     r = resumir(registro.todas(sport_key))
@@ -1595,8 +1613,9 @@ def cmd_papel(args: argparse.Namespace) -> int:
           f"{r['calificadas']} ({r['ganadas']} ganadas) | nulas {r['nulas']} | "
           f"sin calificar {r['sin_calificar']}")
     if r["calificadas"]:
-        print(f"ROI a 1 unidad por apuesta: {r['roi']:+.2%} (el modelo esperaba "
-              f"{r['ev_medio']:+.2%}) | ganancia {r['ganancia']:+.2f} u")
+        print(f"En unidades: {r['ganancia_u']:+.2f} u sobre {r['unidades_arriesgadas']:g} "
+              f"arriesgadas (ROI {r['roi_u']:+.2%})")
+        print(f"A stake plano: ROI {r['roi']:+.2%} (el modelo esperaba {r['ev_medio']:+.2%})")
     if r["n_clv"]:
         print(f"CLV medio: {r['clv_medio']:+.2%} | le gano al cierre en "
               f"{r['clv_positivo']:.0%} de {r['n_clv']} apuestas")
@@ -1610,6 +1629,9 @@ def cmd_papel(args: argparse.Namespace) -> int:
     return 0
 
 
+MAX_MENSAJES_SUELTOS = 12
+
+
 def _telegram_para_papel():
     """Alertador de Telegram, o None si no esta configurado (sin abortar)."""
     from betbot.alerts.telegram import TelegramAlerter
@@ -1621,6 +1643,28 @@ def _telegram_para_papel():
               file=sys.stderr)
         return None
     return TelegramAlerter(settings.telegram_bot_token, settings.telegram_chat_id)
+
+
+def cmd_bankroll(args: argparse.Namespace) -> int:
+    """Muestra o fija el bankroll del .env. 1 unidad = 1% de el."""
+    from betbot.alerts.configurar import escribir_variable, leer_variable
+    from betbot.papel import UNIDAD_PCT
+
+    if args.monto is None:
+        actual = leer_variable(args.env, "BANKROLL")
+        if not actual:
+            print("No hay bankroll puesto. Los avisos van en unidades, sin pesos.")
+            print("Para fijarlo:  betbot bankroll 700")
+            return 0
+        print(f"Bankroll: ${float(actual):,.0f} -> 1 unidad = ${float(actual) * UNIDAD_PCT:,.2f}")
+        return 0
+    if args.monto <= 0:
+        print("El bankroll tiene que ser mayor que cero.", file=sys.stderr)
+        return 2
+    escribir_variable(args.env, "BANKROLL", f"{args.monto:g}")
+    print(f"Bankroll: ${args.monto:,.0f} -> 1 unidad = ${args.monto * UNIDAD_PCT:,.2f}")
+    print("Pon aqui SOLO el dinero que estas dispuesto a perder entero.")
+    return 0
 
 
 def cmd_configurar_telegram(args: argparse.Namespace) -> int:
@@ -1862,6 +1906,11 @@ def main(argv: list[str] | None = None) -> int:
     p_pp.add_argument("--registro", default="data/papel.db")
     p_pp.add_argument("--db", default=None, help="estadisticas de jugador")
     p_pp.set_defaults(func=cmd_papel)
+
+    p_bk = sub.add_parser("bankroll", help="muestra o fija el bankroll (1 unidad = 1%%)")
+    p_bk.add_argument("monto", type=float, nargs="?", default=None)
+    p_bk.add_argument("--env", default=".env")
+    p_bk.set_defaults(func=cmd_bankroll)
 
     p_ct = sub.add_parser("configurar-telegram",
                           help="configura Telegram paso a paso (token y chat id)")

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from zoneinfo import ZoneInfo
 
+from betbot.papel import unidades_de
+
 MX = ZoneInfo("America/Mexico_City")
 
 AVISO = "PAPEL: no son picks, no apostar. Solo mide si el modelo le gana a la casa."
@@ -44,8 +46,39 @@ def _hora(momento) -> str:
     return f"{DIAS[local.weekday()]} {local:%d/%m %H:%M}"
 
 
-def mensaje_generacion(inf, deporte: str, resumen: dict) -> str:
-    """Lo que se apunto en esta corrida, y por que se descarto el resto."""
+def _pesos(unidades: float, pesos_por_unidad: float | None) -> str:
+    return f" (${unidades * pesos_por_unidad:,.0f})" if pesos_por_unidad else ""
+
+
+def mensaje_apuesta(a, deporte: str, pesos_por_unidad: float | None = None) -> str:
+    """Una apuesta, con todo lo necesario para ejecutarla en cualquier casa.
+
+    La cuota minima es la pieza clave: el precio del aviso es la mediana de las
+    casas del feed, y la casa donde se apueste casi nunca paga exactamente eso.
+    "Solo si paga al menos X" funciona en cualquiera, siempre que la linea sea
+    la misma.
+    """
+    ln = a.linea
+    return "\n".join([
+        f"PAPEL {deporte.upper()} - no apostar",
+        f"{_hora(ln.commence)} - {ln.partido}",
+        "",
+        _apuesta(ln.jugador, ln.market, ln.lado, ln.point),
+        f"Cuota {ln.precio:.2f} (mediana de {ln.n_casas} casas)",
+        f"Minima: {a.cuota_minima:.2f} - por debajo ya no tiene valor",
+        f"Modelo {a.p:.0%} | EV {a.ev:+.1%}",
+        f"Stake: {a.unidades:g} u{_pesos(a.unidades, pesos_por_unidad)}",
+        "",
+        "Solo vale con la MISMA linea en tu casa.",
+    ])
+
+
+def mensaje_generacion(inf, deporte: str, resumen: dict, enviadas_aparte: int = 0) -> str:
+    """Resumen de la corrida: cuanto se reviso, que se apunto y que se descarto.
+
+    Las apuestas que ya se mandaron una por una (`enviadas_aparte`) no se
+    repiten aqui; las que no cupieron como mensaje propio si se listan.
+    """
     lineas = [f"BETBOT {deporte.upper()} - apuestas en papel", AVISO, ""]
     if inf.lineas == 0:
         lineas += [
@@ -55,20 +88,28 @@ def mensaje_generacion(inf, deporte: str, resumen: dict) -> str:
         ]
         return "\n".join(lineas)
 
-    lineas.append(f"Revise {inf.lineas:,} lineas de props. Nuevas en papel: {inf.apuntadas}.")
-    if inf.nuevas:
+    total_u = sum(a.unidades for a in inf.nuevas)
+    lineas.append(f"Revise {inf.lineas:,} lineas de props. Nuevas en papel: {inf.apuntadas}"
+                  + (f" ({total_u:g} u en total)." if inf.nuevas else "."))
+    restantes = sorted(inf.nuevas, key=lambda a: (a.linea.commence, a.linea.partido))
+    restantes = restantes[enviadas_aparte:]
+    if enviadas_aparte:
+        lineas.append(f"({enviadas_aparte} ya enviadas arriba, una por mensaje.)")
+    if restantes:
         por_partido: dict[str, list] = {}
-        for linea, p, ev in sorted(inf.nuevas, key=lambda x: (x[0].commence, x[0].partido)):
-            clave = f"{_hora(linea.commence)} - {linea.partido}"
-            por_partido.setdefault(clave, []).append((linea, p, ev))
+        for a in restantes:
+            clave = f"{_hora(a.linea.commence)} - {a.linea.partido}"
+            por_partido.setdefault(clave, []).append(a)
         for partido, apuestas in por_partido.items():
             lineas += ["", partido]
-            for linea, p, ev in apuestas:
+            for a in apuestas:
+                ln = a.linea
                 lineas.append(
-                    f"- {_apuesta(linea.jugador, linea.market, linea.lado, linea.point)}"
-                    f" @ {linea.precio:.2f} | modelo {p:.0%} | EV {ev:+.1%}"
+                    f"- {_apuesta(ln.jugador, ln.market, ln.lado, ln.point)}"
+                    f" @ {ln.precio:.2f} (min {a.cuota_minima:.2f}) | {a.unidades:g} u"
+                    f" | EV {a.ev:+.1%}"
                 )
-    else:
+    elif not inf.nuevas:
         lineas.append("Ninguna tenia valor suficiente. Es un resultado normal.")
 
     descartes = sorted(inf.descartes.items(), key=lambda kv: -kv[1])[:4]
@@ -91,6 +132,10 @@ def mensaje_calificacion(detalle: list, deporte: str, resumen: dict) -> str:
             extra += f" -> {real:g}"
         if estado == "nula" and real is None:
             extra += " (no jugo o no registro nada)"
+        if estado in ("ganada", "perdida"):
+            u = unidades_de(fila)
+            neto = u * (fila["precio"] - 1.0) if estado == "ganada" else -u
+            extra += f" | {neto:+.2f} u"
         if clv is not None and estado != "nula":
             extra += f" | CLV {clv:+.1%}"
         lineas.append(f"{iconos.get(estado, estado)} {apuesta}{extra}")
@@ -102,7 +147,9 @@ def _acumulado(r: dict) -> str:
     texto = (f"Acumulado: {r['apuntadas']} apuntadas, {r['calificadas']} calificadas "
              f"({r['ganadas']} ganadas), {r['pendientes']} pendientes.")
     if r["calificadas"]:
-        texto += f"\nROI {r['roi']:+.1%} a 1 unidad por apuesta."
+        texto += (f"\nEn unidades: {r['ganancia_u']:+.2f} u sobre {r['unidades_arriesgadas']:g}"
+                  f" arriesgadas (ROI {r['roi_u']:+.1%}).")
+        texto += f"\nA stake plano: ROI {r['roi']:+.1%}."
     if r["n_clv"]:
         texto += (f"\nCLV medio {r['clv_medio']:+.1%}: le gano al cierre en "
                   f"{r['clv_positivo']:.0%} de {r['n_clv']}.")
