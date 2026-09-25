@@ -222,3 +222,86 @@ def test_cli_deporte_desconocido(tmp_path, monkeypatch, capsys):
     from betbot.cli import main
     monkeypatch.setenv("ODDS_API_KEY", "x")
     assert main(["collect", "--sport", "cricket", "--db", str(tmp_path / "a.db")]) == 2
+
+
+# --- props: decision y cierre -------------------------------------------------
+
+class APIFalsa:
+    """Registra que partidos se piden; nunca toca la red."""
+
+    pedidos: list[str] = []
+    regiones: str = ""
+
+    def __init__(self, key, regions="us", **_):
+        APIFalsa.regiones = regions
+        self.credits_remaining = 400
+
+    def fetch_event_list(self, sport):
+        from datetime import UTC, datetime, timedelta
+
+        ahora = datetime.now(UTC)
+
+        def ev(i, horas):
+            return {"id": i, "commence_time": (ahora + timedelta(hours=horas)).isoformat(),
+                    "home_team": "Kansas City Chiefs", "away_team": "Denver Broncos"}
+        # 'b' y 'a' a la misma hora: el desempate por id tiene que ser estable.
+        return [ev("en_juego", -1), ev("b", 5), ev("a", 5), ev("c", 6), ev("lejos", 200)]
+
+    def fetch_event_odds_raw(self, sport, event_id, markets):
+        APIFalsa.pedidos.append(event_id)
+        return {"id": event_id, "commence_time": "2026-09-27T17:00:00Z",
+                "home_team": "Kansas City Chiefs", "away_team": "Denver Broncos",
+                "bookmakers": []}
+
+
+@pytest.fixture
+def api_falsa(monkeypatch):
+    from betbot.odds import the_odds_api
+
+    monkeypatch.setenv("ODDS_API_KEY", "x")
+    monkeypatch.setattr(the_odds_api, "TheOddsAPI", APIFalsa)
+    APIFalsa.pedidos = []
+    return APIFalsa
+
+
+def test_props_de_decision_eligen_los_primeros_partidos_y_desempatan(tmp_path, api_falsa):
+    from betbot.cli import main
+
+    assert main(["collect", "--sport", "nfl", "--markets", "", "--props",
+                 "--max-eventos", "2", "--db", str(tmp_path / "a.db")]) == 0
+    # Ni el que ya empezo ni el lejano; y entre 'a' y 'b' (misma hora) gana 'a'.
+    assert api_falsa.pedidos == ["a", "b"]
+
+
+def test_cierre_solo_pide_partidos_con_apuestas_pendientes(tmp_path, api_falsa):
+    from datetime import UTC, datetime, timedelta
+
+    from betbot.cli import main
+    from betbot.papel import LineaProp, RegistroPapel
+
+    reg = RegistroPapel(tmp_path / "p.db")
+    ko = datetime.now(UTC) + timedelta(hours=6)
+    linea = LineaProp("c", ko, "Kansas City Chiefs", "Denver Broncos",
+                      "player_receptions", "Travis Kelce", "Over", 4.5, 1.9, 1.95, 3)
+    reg.apuntar("americanfootball_nfl", linea, "kelce", 0.6, 0.14, datetime.now(UTC))
+
+    assert main(["collect", "--sport", "nfl", "--markets", "", "--props", "--solo-apostadas",
+                 "--registro", str(tmp_path / "p.db"), "--db", str(tmp_path / "a.db")]) == 0
+    assert api_falsa.pedidos == ["c"]
+
+
+def test_cierre_sin_apuestas_no_gasta_nada(tmp_path, api_falsa):
+    from betbot.cli import main
+
+    assert main(["collect", "--sport", "nfl", "--markets", "", "--props", "--solo-apostadas",
+                 "--registro", str(tmp_path / "p.db"), "--db", str(tmp_path / "a.db")]) == 0
+    assert api_falsa.pedidos == []
+
+
+def test_regiones_de_la_llamada_sustituyen_a_las_del_env(tmp_path, api_falsa, monkeypatch):
+    from betbot.cli import main
+
+    monkeypatch.setenv("ODDS_REGIONS", "us,eu")
+    main(["collect", "--sport", "nfl", "--markets", "", "--props", "--regiones", "us",
+          "--dry-run", "--db", str(tmp_path / "a.db")])
+    assert api_falsa.regiones == "us"

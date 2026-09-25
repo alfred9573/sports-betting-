@@ -511,6 +511,37 @@ Igual que en NFL: comparar contra precios reales. La temporada 2026-27 arranca a
 finales de octubre, y archivar sus lineas choca con el presupuesto del plan
 gratuito (ver RUNBOOK 5g).
 
+## 14. Apuestas en papel: como se mide si el modelo le gana a la casa
+
+Ninguna de las validaciones anteriores compara contra precios. `betbot papel`
+lo hace hacia delante, sin dinero: apunta props con EV positivo al precio del
+momento, y las califica con el resultado y con el precio de cierre.
+
+Decisiones de diseno, cada una contra una forma concreta de enganarse:
+
+- **Precio tomado = mediana entre casas** (minimo dos). Con el mejor precio de
+  28 casas el resultado reflejaria lineas que no se pueden cobrar o que nadie
+  retiro del feed (el archivo registra cambios, no retiradas).
+- **Decision antes del cierre, CLV contra el cierre.** Decidir con el precio de
+  cierre da CLV cero por construccion.
+- **Jugador que no juega = nula**, como liquida la casa.
+- **Emparejar nombres sin adivinar.** "D.J. Moore" y "DJ Moore" coinciden; dos
+  Josh Allen (QB y defensivo) se resuelven por equipo y por uso de la
+  estadistica apostada; un homonimo que no juega hace mas de 300 dias no se usa.
+  Si queda duda, la linea se descarta y se cuenta el motivo.
+- **Filtros por sesgo conocido**: no se apuestan las zonas donde la validacion
+  mostro sobreestimacion (anytime TD > 40%; cola alta > 60% en recepciones,
+  asistencias, triples y TD de pase).
+- **EV > 25% se trata como error**, no como oportunidad.
+- **Atraso de datos**: con mas de una semana (NFL) o un dia (NBA) sin
+  estadisticas, no se apunta. Cada apuesta guarda su atraso para analizarlo.
+
+Coste: la decision pide props de N partidos (solo region us); el cierre, solo
+de los partidos con apuestas pendientes. Con N=3 en NFL, ~150 creditos/mes.
+
+Criterio para dinero real: CLV medio positivo sostenido hasta ~200-300
+apuestas. Por debajo de ~100 no se concluye nada, ni a favor ni en contra.
+
 ## Lo que queda vivo
 
 Nada, con las casas disponibles desde México.

@@ -15,6 +15,7 @@ import argparse
 import logging
 import sys
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from betbot.alerts.console import ConsoleAlerter
 from betbot.alerts.telegram import TelegramAlerter
@@ -1181,9 +1182,13 @@ def cmd_collect(args: argparse.Namespace) -> int:
         print(f"Deporte desconocido: {args.sport}", file=sys.stderr)
         return 2
 
-    n_regiones = max(1, len([r for r in settings.regions.split(",") if r.strip()]))
+    # `--regiones` permite pedir las props a menos regiones que las lineas de
+    # partido: las props de NFL y NBA las ofrecen casi solo casas de EE.UU., y
+    # cada region anadida multiplica el coste por partido.
+    regiones = args.regiones or settings.regions
+    n_regiones = max(1, len([r for r in regiones.split(",") if r.strip()]))
     mercados = [m.strip() for m in args.markets.split(",") if m.strip()]
-    provider = TheOddsAPI(settings.odds_api_key, regions=settings.regions)
+    provider = TheOddsAPI(settings.odds_api_key, regions=regiones)
 
     total_vistas = total_nuevas = 0
 
@@ -1212,13 +1217,26 @@ def cmd_collect(args: argparse.Namespace) -> int:
         except OddsAPIError as e:
             print(f"Error listando eventos: {e}", file=sys.stderr)
             return 1
-        limite = datetime.now(UTC) + timedelta(hours=args.horas)
+        ahora = datetime.now(UTC)
+        limite = ahora + timedelta(hours=args.horas)
+        # Solo partidos que aun no empiezan: los ya en juego tambien salen en
+        # la lista, y sus props en vivo costarian creditos sin servir de nada.
         proximos = [
             e for e in eventos
             if _ts_evento(e.get("commence_time")) is not None
-            and _ts_evento(e["commence_time"]) <= limite
+            and ahora < _ts_evento(e["commence_time"]) <= limite
         ]
-        proximos.sort(key=lambda e: e["commence_time"])
+        if args.solo_apostadas:
+            # Cierre de las apuestas en papel: solo los partidos que tienen alguna
+            # pendiente. Sin apuestas en la ventana, no se gasta un credito.
+            from betbot.papel import RegistroPapel
+
+            con_apuestas = {f["event_id"] for f in RegistroPapel(args.registro).todas(sport.value)
+                            if f["estado"] == "pendiente"}
+            proximos = [e for e in proximos if e.get("id") in con_apuestas]
+        # Desempate por id: la decision del sabado y el cierre del domingo tienen
+        # que elegir LOS MISMOS partidos cuando varios empiezan a la misma hora.
+        proximos.sort(key=lambda e: (e["commence_time"], e.get("id", "")))
         proximos = proximos[: args.max_eventos]
         coste = len(proximos) * len(claves) * n_regiones
         print(f"\nProps: {len(proximos)} partidos x {len(claves)} mercados x "
@@ -1506,6 +1524,80 @@ def cmd_backtest_anytime_td(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_papel(args: argparse.Namespace) -> int:
+    """Apuestas en papel sobre props: apunta, califica y resume. No apuesta nada.
+
+    Es el paso que falta entre "el modelo esta calibrado" y "el modelo le gana
+    a la casa". Usa las lineas que archiva `collect --props`, asi que sin props
+    archivadas no hay nada que apuntar.
+    """
+    import time
+
+    from betbot.papel import RegistroPapel, ahora_utc, calificar, generar, resumir
+    from betbot.papel_deportes import AdaptadorNBA, AdaptadorNFL
+
+    registro = RegistroPapel(args.registro)
+    sport_key = Sport.NBA.value if args.sport == "nba" else Sport.NFL.value
+
+    if not args.resumen:
+        db = args.db or ("data/nba_players.db" if args.sport == "nba" else "data/players.db")
+        if not Path(db).exists():
+            print(f"No hay estadisticas de jugador en {db}. Corre primero: "
+                  f"ingest-players --sport {args.sport}", file=sys.stderr)
+            return 2
+        if not Path(args.archivo).exists():
+            print(f"No hay archivo de lineas en {args.archivo}. Corre primero: "
+                  f"collect --sport {args.sport} --props", file=sys.stderr)
+            return 2
+        print(f"Entrenando modelos de {args.sport.upper()} con todo el historial...", flush=True)
+        t0 = time.time()
+        adaptador = (AdaptadorNBA(db=db) if args.sport == "nba" else AdaptadorNFL(db=db)).entrenar()
+        print(f"  listo en {time.time() - t0:.0f}s\n")
+
+        ahora = ahora_utc()
+        cal = calificar(adaptador, args.archivo, registro, ahora)
+        if cal:
+            print("Calificadas: " + ", ".join(f"{k} {v}" for k, v in sorted(cal.items())))
+
+        inf = generar(adaptador, args.archivo, registro, ahora, min_ev=args.min_ev,
+                      max_atraso=args.max_atraso)
+        print(f"Lineas de props vigentes: {inf.lineas:,} | apuntadas nuevas: {inf.apuntadas} "
+              f"| ya apuntadas antes: {inf.ya_apuntadas} | sin valor: {inf.sin_valor:,}")
+        if inf.descartes:
+            print("Descartadas:")
+            for motivo, n in sorted(inf.descartes.items(), key=lambda kv: -kv[1]):
+                print(f"  {n:>6,}  {motivo}")
+        if inf.nuevas:
+            print("\nNuevas apuestas EN PAPEL (precio = mediana entre casas):")
+            for linea, p, ev in sorted(inf.nuevas, key=lambda x: x[0].commence):
+                pt = f" {linea.point:g}" if linea.point is not None else ""
+                print(f"  {linea.commence:%a %d %H:%M}Z  {linea.partido}")
+                print(f"      {linea.jugador} {linea.market.replace('player_', '')} "
+                      f"{linea.lado}{pt} @ {linea.precio:.2f} ({linea.n_casas} casas) | "
+                      f"modelo {p:.1%} | EV {ev:+.1%}")
+        print()
+
+    r = resumir(registro.todas(sport_key))
+    print(f"=== Historial en papel ({args.sport.upper()}) ===")
+    print(f"apuntadas {r['apuntadas']} | pendientes {r['pendientes']} | calificadas "
+          f"{r['calificadas']} ({r['ganadas']} ganadas) | nulas {r['nulas']} | "
+          f"sin calificar {r['sin_calificar']}")
+    if r["calificadas"]:
+        print(f"ROI a 1 unidad por apuesta: {r['roi']:+.2%} (el modelo esperaba "
+              f"{r['ev_medio']:+.2%}) | ganancia {r['ganancia']:+.2f} u")
+    if r["n_clv"]:
+        print(f"CLV medio: {r['clv_medio']:+.2%} | le gano al cierre en "
+              f"{r['clv_positivo']:.0%} de {r['n_clv']} apuestas")
+    n = r["calificadas"]
+    if n < 200:
+        # El ROI de pocas apuestas es casi todo suerte: con 50 apuestas a cuota
+        # ~1.9 la desviacion tipica del ROI ronda el 13%. El CLV se estabiliza
+        # antes, pero tampoco dice nada serio por debajo de ~100.
+        print(f"\nCon {n} apuestas calificadas esto es RUIDO. No saques conclusiones "
+              f"antes de ~200; mira primero el CLV.")
+    return 0
+
+
 def cmd_test_telegram(args: argparse.Namespace) -> int:
     """Comprueba la configuracion de Telegram enviando un mensaje de prueba."""
     from betbot.alerts.telegram import TelegramAlerter
@@ -1679,6 +1771,11 @@ def main(argv: list[str] | None = None) -> int:
                        help="ventana de partidos para las props")
     p_col.add_argument("--max-eventos", type=int, default=6,
                        help="tope de partidos con props por corrida (control de cuota)")
+    p_col.add_argument("--regiones", default=None,
+                       help="regiones para esta llamada (p.ej. 'us'); por defecto las del .env")
+    p_col.add_argument("--solo-apostadas", action="store_true",
+                       help="props solo de partidos con apuestas en papel pendientes (cierre)")
+    p_col.add_argument("--registro", default="data/papel.db")
     p_col.add_argument("--dry-run", action="store_true",
                        help="estima el coste de props sin gastar creditos")
     p_col.add_argument("--stats", action="store_true", help="estado del archivo")
@@ -1715,6 +1812,19 @@ def main(argv: list[str] | None = None) -> int:
                       help="peso del historial de TDs frente al uso (elegido: 0.70)")
     p_td.add_argument("--db", default="data/players.db")
     p_td.set_defaults(func=cmd_backtest_anytime_td)
+
+    p_pp = sub.add_parser("papel",
+                          help="apuestas EN PAPEL sobre props: apunta, califica, resume")
+    p_pp.add_argument("--sport", choices=("nfl", "nba"), default="nfl")
+    p_pp.add_argument("--min-ev", type=float, default=0.03)
+    p_pp.add_argument("--max-atraso", type=int, default=1,
+                      help="semanas (NFL) o dias (NBA) de datos que pueden faltar")
+    p_pp.add_argument("--resumen", action="store_true",
+                      help="solo el resumen, sin entrenar ni apuntar")
+    p_pp.add_argument("--archivo", default="data/odds_archive.db")
+    p_pp.add_argument("--registro", default="data/papel.db")
+    p_pp.add_argument("--db", default=None, help="estadisticas de jugador")
+    p_pp.set_defaults(func=cmd_papel)
 
     p_tg = sub.add_parser("test-telegram", help="comprueba las alertas de Telegram")
     p_tg.set_defaults(func=cmd_test_telegram)

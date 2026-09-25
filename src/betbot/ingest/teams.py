@@ -57,8 +57,10 @@ NBA_TEAMS: dict[str, list[str]] = {
     "Miami Heat": ["Heat", "MIA", "Miami"],
     "Milwaukee Bucks": ["Bucks", "MIL", "Milwaukee"],
     "Minnesota Timberwolves": ["Timberwolves", "MIN", "Minnesota", "Wolves"],
-    "New Orleans Pelicans": ["Pelicans", "NOP", "New Orleans", "New Orleans Hornets", "NOH", "NOK"],
-    "New York Knicks": ["Knicks", "NYK", "New York", "Knicks"],
+    "New Orleans Pelicans": [
+        "Pelicans", "NOP", "NO", "New Orleans", "New Orleans Hornets", "NOH", "NOK",
+    ],
+    "New York Knicks": ["Knicks", "NYK", "NY", "New York"],
     "Oklahoma City Thunder": ["Thunder", "OKC", "Oklahoma City", "Seattle SuperSonics", "SEA"],
     "Orlando Magic": ["Magic", "ORL", "Orlando"],
     "Philadelphia 76ers": ["PHI", "Philadelphia", "Sixers", "76ers"],
@@ -68,7 +70,7 @@ NBA_TEAMS: dict[str, list[str]] = {
     "San Antonio Spurs": ["Spurs", "SAS", "SA", "San Antonio"],
     "Toronto Raptors": ["Raptors", "TOR", "Toronto"],
     "Utah Jazz": ["Jazz", "UTA", "Utah", "New Orleans Jazz"],
-    "Washington Wizards": ["Wizards", "WAS", "WSB", "Washington", "Washington Bullets"],
+    "Washington Wizards": ["Wizards", "WAS", "WSH", "WSB", "Washington", "Washington Bullets"],
 }
 
 MLB_TEAMS: dict[str, list[str]] = {

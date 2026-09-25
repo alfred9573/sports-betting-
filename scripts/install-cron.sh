@@ -6,6 +6,7 @@
 #   bash scripts/install-cron.sh epl nfl nba  # los que quieras
 #   bash scripts/install-cron.sh --colecta nfl   # + archivado de lineas
 #   bash scripts/install-cron.sh --solo-colecta nfl   # SOLO archivado (sin scan)
+#   bash scripts/install-cron.sh --solo-colecta --props=3 nfl   # + apuestas en papel
 
 set -uo pipefail
 
@@ -28,11 +29,14 @@ N_REG=$(printf '%s' "$REGIONES" | awk -F, '{print NF}')
 
 COLECTA=0
 SOLO_COLECTA=0
+PROPS=0
 DEPORTES=()
 for arg in "$@"; do
     case "$arg" in
         --colecta) COLECTA=1 ;;
         --solo-colecta) SOLO_COLECTA=1 ;;
+        --props) PROPS=3 ;;
+        --props=*) PROPS="${arg#--props=}" ;;
         *) DEPORTES+=("$arg") ;;
     esac
 done
@@ -65,6 +69,20 @@ colecta_de() {
             echo "# Estadisticas de jugador: nflverse publica con dias de retraso,"
             echo "# asi que se refresca martes y viernes. No gasta creditos."
             echo "30 7 * * 2,5 $WRAP ingest-players --actual"
+            if [ "$PROPS" -gt 0 ]; then
+                echo "# APUESTAS EN PAPEL. Props solo de casas de EE.UU. (--regiones us):"
+                echo "# son las que las ofrecen, y cada region mas duplica el coste."
+                echo "# Decision: sabado, props de los $PROPS primeros partidos del fin de semana."
+                echo "15 9 * * 6 $WRAP collect --sport nfl --markets '' --props --regiones us --horas 48 --max-eventos $PROPS"
+                echo "30 9 * * 6 $WRAP papel --sport nfl"
+                echo "# Cierre: SOLO partidos con apuestas pendientes. Sin apuestas, 0 creditos."
+                echo "0 7 * * 0 $WRAP collect --sport nfl --markets '' --props --regiones us --horas 3 --solo-apostadas"
+                echo "30 10 * * 0 $WRAP collect --sport nfl --markets '' --props --regiones us --horas 3 --solo-apostadas"
+                echo "0 14 * * 0 $WRAP collect --sport nfl --markets '' --props --regiones us --horas 3 --solo-apostadas"
+                echo "0 18 * * 0,1,4 $WRAP collect --sport nfl --markets '' --props --regiones us --horas 3 --solo-apostadas"
+                echo "# Calificar despues de cada refresco de estadisticas."
+                echo "30 9 * * 2,5 $WRAP papel --sport nfl"
+            fi
             ;;
         nba)
             # Partidos a las 19:00 y 22:00 de la costa este: 17:00 y 20:00 de
@@ -77,6 +95,15 @@ colecta_de() {
             echo "45 19 * * * $WRAP collect --sport nba"
             echo "# Estadisticas de jugador, cada manana. No gasta creditos."
             echo "40 7 * * * $WRAP ingest-players --sport nba --actual"
+            if [ "$PROPS" -gt 0 ]; then
+                echo "# APUESTAS EN PAPEL. Decision a mediodia (las casas publican las props"
+                echo "# de la noche por la manana), cierre solo de partidos con apuestas."
+                echo "0 13 * * * $WRAP collect --sport nba --markets '' --props --regiones us --horas 12 --max-eventos $PROPS"
+                echo "15 13 * * * $WRAP papel --sport nba"
+                echo "40 16 * * * $WRAP collect --sport nba --markets '' --props --regiones us --horas 3 --solo-apostadas"
+                echo "40 19 * * * $WRAP collect --sport nba --markets '' --props --regiones us --horas 3 --solo-apostadas"
+                echo "0 8 * * * $WRAP papel --sport nba"
+            fi
             ;;
         *)
             echo "$m 8,20 * * * $WRAP collect --sport $d"
@@ -104,6 +131,13 @@ if [ "$SOLO_COLECTA" -eq 1 ]; then
 # --- $d ---
 $(colecta_de "$d" "$MINUTO")"
         COSTE=$(( COSTE + $(barridos_mes "$d") * 3 * N_REG ))
+        if [ "$PROPS" -gt 0 ]; then
+            # Decision + como mucho un cierre por partido, con region us.
+            case "$d" in
+                nfl) COSTE=$(( COSTE + PROPS * 6 * 2 * 43 / 10 )) ;;   # 6 mercados, ~4.3 semanas
+                nba) COSTE=$(( COSTE + PROPS * 4 * 2 * 30 )) ;;        # 4 mercados, cada dia
+            esac
+        fi
         MINUTO=$((MINUTO + 3))
     done
     BLOQUE="$BLOQUE

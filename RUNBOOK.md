@@ -620,6 +620,43 @@ antes de tocar nada:
 bash scripts/install-cron.sh --solo-colecta nfl nba
 ```
 
+## 5h. Apuestas en papel sobre props
+
+Es el paso que separa "el modelo está calibrado" de "el modelo le gana a la
+casa". Cada sábado toma las props reales de unos pocos partidos, calcula la
+probabilidad del modelo, apunta las que tendrían valor esperado positivo **sin
+apostar nada**, y después del partido las califica con el resultado real y con
+el precio de cierre.
+
+```bash
+# instalar (reemplaza el bloque de cron anterior; muestra el costo antes)
+bash scripts/install-cron.sh --solo-colecta --props=3 nfl
+
+# ver cómo va, en cualquier momento (no gasta créditos)
+betbot papel --sport nfl --resumen
+```
+
+Con `--props=3` son ~466 créditos al mes contando la colecta normal: cabe en
+el plan gratuito, pero justo. NBA con props no cabe sin un plan de pago.
+
+**Cómo está hecho para no engañarte:**
+
+- El precio que se "toma" es la **mediana entre casas**, no el mejor. El mejor
+  de 28 casas casi siempre es de una casa donde no tienes cuenta.
+- Se decide el sábado y se compara contra el precio **justo antes del
+  partido**. Esa diferencia es el CLV.
+- Si el jugador no juega, la apuesta queda **nula**, como en la casa.
+- No se apuntan líneas donde se sabe que el modelo se pasa (anytime TD sobre
+  40%, recepciones/asistencias/triples/TD de pase sobre 60%), ni EV mayores a
+  25%: casi siempre son un error de nombre o una línea vieja.
+- Si a las estadísticas les falta más de una semana, no se apunta nada.
+
+**Qué mirar y cuándo:** primero el **CLV medio**. Si durante las primeras
+~100 apuestas es negativo, el modelo no le gana al cierre y el ROI no importa.
+Si es positivo y se mantiene hasta ~200-300 apuestas, ahí se puede hablar de
+dinero real con montos chicos. **El ROI de 30 o 50 apuestas es casi todo
+suerte**: el comando te lo recuerda.
+
 ## 6. Dinero de papel: qué mirar y cuándo decidir
 
 Apunta las señales en papel. No muevas dinero real todavía.
