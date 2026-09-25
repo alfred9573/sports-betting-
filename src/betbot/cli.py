@@ -1315,7 +1315,7 @@ def cmd_backtest_props(args: argparse.Namespace) -> int:
     """
     import sqlite3
 
-    from betbot.backtest.props import walk_forward_props
+    from betbot.backtest.props import marca_calibracion, walk_forward_props
     from betbot.models.props import MERCADOS, PropsModel
 
     columnas = sorted(set(MERCADOS.values()))
@@ -1367,7 +1367,7 @@ def cmd_backtest_props(args: argparse.Namespace) -> int:
         for m, r in res.items():
             print(f"\n  {m}")
             for pm, obs, n in r.calibracion():
-                marca = "  <-- desviado" if abs(pm - obs) > 0.05 else ""
+                marca = marca_calibracion(pm, obs, n)
                 print(f"    {pm:5.1%} -> {obs:5.1%}  (n={n:,}){marca}")
     return 0
 

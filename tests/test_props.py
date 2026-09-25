@@ -344,3 +344,34 @@ def test_progreso_se_llama_una_vez_por_temporada():
     walk_forward_props(filas, mercados=("player_pass_yds",),
                        modelo=PropsModel(min_cocientes=1), progreso=vistas.append)
     assert vistas == [2019, 2020]
+
+
+# --- marca de calibracion -------------------------------------------------
+
+def test_un_cubo_de_una_prediccion_no_se_marca_como_desviado():
+    """El caso real: 70% -> 100% con n=1 salia como defecto del modelo."""
+    from betbot.backtest.props import marca_calibracion
+
+    assert "desviado" not in marca_calibracion(0.70, 1.0, 1)
+    assert "muestra chica" in marca_calibracion(0.70, 1.0, 1)
+
+
+def test_hueco_grande_con_muestra_grande_si_se_marca():
+    from betbot.backtest.props import marca_calibracion
+
+    # receptions en la cola alta: 63.2% -> 59.1% con n=7.903
+    assert "desviado" in marca_calibracion(0.632, 0.591, 7903)
+
+
+def test_hueco_dentro_del_ruido_no_se_marca():
+    from betbot.backtest.props import marca_calibracion
+
+    # rush_yds: 50.2% -> 45.4% con n=295. Dos errores estandar son ~5.8 pts.
+    assert marca_calibracion(0.502, 0.454, 295) == ""
+
+
+def test_diferencia_minima_en_cubo_enorme_no_se_marca():
+    """Con n gigante, 1 punto es estadisticamente real pero irrelevante."""
+    from betbot.backtest.props import marca_calibracion
+
+    assert marca_calibracion(0.345, 0.354, 19959) == ""

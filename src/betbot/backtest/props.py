@@ -95,6 +95,28 @@ class ResultadoProps:
         return salida
 
 
+MUESTRA_MINIMA_CUBO = 100
+
+
+def marca_calibracion(predicho: float, observado: float, n: int) -> str:
+    """Etiqueta de un cubo de calibracion: solo marca lo que no puede ser ruido.
+
+    La version anterior marcaba cualquier hueco de mas de 5 puntos sin mirar el
+    tamano del cubo, y asi un cubo de UNA sola prediccion (70% -> 100%) salia
+    senalado como "desviado". Con n=1 el observado solo puede ser 0% o 100%:
+    eso no es un defecto, es aritmetica. Ahora se exige muestra minima y que
+    el hueco supere dos errores estandar de la proporcion, ademas de 3 puntos
+    para no senalar diferencias reales pero irrelevantes en cubos enormes.
+    """
+    if n < MUESTRA_MINIMA_CUBO:
+        return "  (muestra chica, ignorar)"
+    p = min(max(predicho, 1e-6), 1 - 1e-6)
+    error_estandar = (p * (1 - p) / n) ** 0.5
+    if abs(predicho - observado) > max(0.03, 2 * error_estandar):
+        return "  <-- desviado"
+    return ""
+
+
 def lineas_sinteticas(media: float) -> list[float]:
     """Donde pondria un libro la linea: medio punto cerca de la proyeccion.
 
