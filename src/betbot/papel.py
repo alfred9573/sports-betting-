@@ -473,13 +473,16 @@ def generar(
 
 def calificar(
     adaptador, archivo: str | Path, registro: RegistroPapel, ahora: datetime,
-    caducidad_dias: int = 30,
+    caducidad_dias: int = 30, detalle: list | None = None,
 ) -> dict[str, int]:
     """Califica las apuestas cuyos partidos ya empezaron.
 
     Lo que siga sin estadisticas `caducidad_dias` despues del partido se marca
     `sin_calificar` y sale de las cuentas: dejarlo pendiente para siempre lo
     esconderia, y contarlo como perdido o nulo seria inventar el resultado.
+
+    Si se pasa `detalle`, se le anade (fila, estado, real, clv) por cada apuesta
+    cerrada, para poder contar que paso con cada una y no solo cuantas.
     """
     cuenta: dict[str, int] = defaultdict(int)
     for fila in registro.pendientes(adaptador.sport, ahora):
@@ -499,4 +502,7 @@ def calificar(
             estado = resultado_de(fila["lado"], fila["point"], real)
         registro.cerrar(fila["id"], estado, real, cierre, fila["precio"], ahora)
         cuenta[estado] += 1
+        if detalle is not None:
+            clv = (fila["precio"] / cierre - 1.0) if cierre else None
+            detalle.append((fila, estado, real, clv))
     return cuenta

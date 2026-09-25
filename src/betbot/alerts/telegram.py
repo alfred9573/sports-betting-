@@ -49,6 +49,28 @@ class TelegramAlerter:
         """Mensaje suelto, para comprobar la configuracion."""
         return self._post(texto)
 
+    # Telegram corta en 4096 caracteres. Se deja margen y se parte por lineas
+    # para no cortar una apuesta a la mitad.
+    LIMITE = 3900
+
+    def send_plain(self, texto: str) -> bool:
+        """Texto SIN formato, partido en trozos si es largo.
+
+        Sin Markdown a proposito: los nombres de mercado (`player_pass_yds`) y
+        algunos nombres de jugador llevan guiones bajos o asteriscos, que el
+        Markdown de Telegram interpreta como formato. Un mensaje mal formado se
+        rechaza entero con un 400, y el aviso se pierde sin que nadie lo vea.
+        """
+        trozos, actual = [], ""
+        for linea in texto.split("\n"):
+            if len(actual) + len(linea) + 1 > self.LIMITE and actual:
+                trozos.append(actual)
+                actual = ""
+            actual = f"{actual}\n{linea}" if actual else linea
+        if actual:
+            trozos.append(actual)
+        return all([self._post(t, parse_mode=None) for t in trozos])
+
     def send(self, signals: list[Signal]) -> int:
         sent = 0
         for s in signals:
@@ -56,10 +78,11 @@ class TelegramAlerter:
                 sent += 1
         return sent
 
-    def _post(self, text: str) -> bool:
-        payload = json.dumps(
-            {"chat_id": self.chat_id, "text": text, "parse_mode": "Markdown"}
-        ).encode()
+    def _post(self, text: str, parse_mode: str | None = "Markdown") -> bool:
+        cuerpo = {"chat_id": self.chat_id, "text": text}
+        if parse_mode:
+            cuerpo["parse_mode"] = parse_mode
+        payload = json.dumps(cuerpo).encode()
         req = urllib.request.Request(
             f"https://api.telegram.org/bot{self.bot_token}/sendMessage",
             data=payload,

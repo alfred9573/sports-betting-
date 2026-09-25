@@ -1535,9 +1535,11 @@ def cmd_papel(args: argparse.Namespace) -> int:
 
     from betbot.papel import RegistroPapel, ahora_utc, calificar, generar, resumir
     from betbot.papel_deportes import AdaptadorNBA, AdaptadorNFL
+    from betbot.papel_mensajes import mensaje_calificacion, mensaje_generacion
 
     registro = RegistroPapel(args.registro)
     sport_key = Sport.NBA.value if args.sport == "nba" else Sport.NFL.value
+    telegram = _telegram_para_papel() if args.telegram else None
 
     if not args.resumen:
         db = args.db or ("data/nba_players.db" if args.sport == "nba" else "data/players.db")
@@ -1555,12 +1557,22 @@ def cmd_papel(args: argparse.Namespace) -> int:
         print(f"  listo en {time.time() - t0:.0f}s\n")
 
         ahora = ahora_utc()
-        cal = calificar(adaptador, args.archivo, registro, ahora)
+        detalle: list = []
+        cal = calificar(adaptador, args.archivo, registro, ahora, detalle=detalle)
         if cal:
             print("Calificadas: " + ", ".join(f"{k} {v}" for k, v in sorted(cal.items())))
+        if telegram and detalle:
+            telegram.send_plain(mensaje_calificacion(
+                detalle, args.sport, resumir(registro.todas(sport_key))))
 
         inf = generar(adaptador, args.archivo, registro, ahora, min_ev=args.min_ev,
                       max_atraso=args.max_atraso)
+        # Con lineas se avisa siempre, haya o no apuestas: el mensaje es la prueba
+        # de que el bot trabajo. Sin lineas solo si se pide (--avisar-vacio, el
+        # del sabado): ese silencio es justo el fallo que hay que ver.
+        if telegram and (inf.lineas or args.avisar_vacio):
+            telegram.send_plain(mensaje_generacion(
+                inf, args.sport, resumir(registro.todas(sport_key))))
         print(f"Lineas de props vigentes: {inf.lineas:,} | apuntadas nuevas: {inf.apuntadas} "
               f"| ya apuntadas antes: {inf.ya_apuntadas} | sin valor: {inf.sin_valor:,}")
         if inf.descartes:
@@ -1596,6 +1608,19 @@ def cmd_papel(args: argparse.Namespace) -> int:
         print(f"\nCon {n} apuestas calificadas esto es RUIDO. No saques conclusiones "
               f"antes de ~200; mira primero el CLV.")
     return 0
+
+
+def _telegram_para_papel():
+    """Alertador de Telegram, o None si no esta configurado (sin abortar)."""
+    from betbot.alerts.telegram import TelegramAlerter
+
+    settings = Settings.from_env()
+    if not settings.telegram_enabled:
+        print("Telegram no configurado (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID en .env): "
+              "sigo sin mandar mensajes. Pruebalo con: betbot test-telegram",
+              file=sys.stderr)
+        return None
+    return TelegramAlerter(settings.telegram_bot_token, settings.telegram_chat_id)
 
 
 def cmd_test_telegram(args: argparse.Namespace) -> int:
@@ -1819,6 +1844,10 @@ def main(argv: list[str] | None = None) -> int:
     p_pp.add_argument("--min-ev", type=float, default=0.03)
     p_pp.add_argument("--max-atraso", type=int, default=1,
                       help="semanas (NFL) o dias (NBA) de datos que pueden faltar")
+    p_pp.add_argument("--telegram", action="store_true",
+                      help="manda lo apuntado y lo calificado por Telegram")
+    p_pp.add_argument("--avisar-vacio", action="store_true",
+                      help="con --telegram: avisa tambien si no hay lineas (fallo del barrido)")
     p_pp.add_argument("--resumen", action="store_true",
                       help="solo el resumen, sin entrenar ni apuntar")
     p_pp.add_argument("--archivo", default="data/odds_archive.db")

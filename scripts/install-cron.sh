@@ -92,14 +92,14 @@ colecta_de() {
                 echo "# son las que las ofrecen, y cada region mas duplica el coste."
                 echo "# Decision: sabado, props de los $PROPS primeros partidos del fin de semana."
                 echo "15 9 * * 6 $WRAP collect --sport nfl --markets '' --props --regiones us --horas 48 --max-eventos $PROPS"
-                echo "30 9 * * 6 $WRAP papel --sport nfl"
+                echo "30 9 * * 6 $WRAP papel --sport nfl --telegram --avisar-vacio"
                 echo "# Cierre: SOLO partidos con apuestas pendientes. Sin apuestas, 0 creditos."
                 echo "0 7 * * 0 $WRAP collect --sport nfl --markets '' --props --regiones us --horas 3 --solo-apostadas"
                 echo "30 10 * * 0 $WRAP collect --sport nfl --markets '' --props --regiones us --horas 3 --solo-apostadas"
                 echo "0 14 * * 0 $WRAP collect --sport nfl --markets '' --props --regiones us --horas 3 --solo-apostadas"
                 echo "0 18 * * 0,1,4 $WRAP collect --sport nfl --markets '' --props --regiones us --horas 3 --solo-apostadas"
                 echo "# Calificar despues de cada refresco de estadisticas."
-                echo "30 9 * * 2,5 $WRAP papel --sport nfl"
+                echo "30 9 * * 2,5 $WRAP papel --sport nfl --telegram"
             fi
             ;;
         nba)
@@ -117,10 +117,10 @@ colecta_de() {
                 echo "# APUESTAS EN PAPEL. Decision a mediodia (las casas publican las props"
                 echo "# de la noche por la manana), cierre solo de partidos con apuestas."
                 echo "0 13 * * * $WRAP collect --sport nba --markets '' --props --regiones us --horas 12 --max-eventos $PROPS"
-                echo "15 13 * * * $WRAP papel --sport nba"
+                echo "15 13 * * * $WRAP papel --sport nba --telegram --avisar-vacio"
                 echo "40 16 * * * $WRAP collect --sport nba --markets '' --props --regiones us --horas 3 --solo-apostadas"
                 echo "40 19 * * * $WRAP collect --sport nba --markets '' --props --regiones us --horas 3 --solo-apostadas"
-                echo "0 8 * * * $WRAP papel --sport nba"
+                echo "0 8 * * * $WRAP papel --sport nba --telegram"
             fi
             ;;
         *)

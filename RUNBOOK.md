@@ -651,6 +651,16 @@ el plan gratuito, pero justo. NBA con props no cabe sin un plan de pago.
   25%: casi siempre son un error de nombre o una línea vieja.
 - Si a las estadísticas les falta más de una semana, no se apunta nada.
 
+**Avisos por Telegram.** Con Telegram configurado en el `.env`, el cron manda
+un mensaje cada sábado con lo que apuntó (o con que no encontró líneas, que es
+la señal de que falló el barrido) y otro cada vez que califica. Todos llevan
+"PAPEL: no son picks, no apostar". Si un sábado no llega nada, algo se rompió:
+revisa `logs/papel.log`. Para comprobar la configuración:
+
+```bash
+betbot test-telegram
+```
+
 **Qué mirar y cuándo:** primero el **CLV medio**. Si durante las primeras
 ~100 apuestas es negativo, el modelo no le gana al cierre y el ROI no importa.
 Si es positivo y se mantiene hasta ~200-300 apuestas, ahí se puede hablar de
