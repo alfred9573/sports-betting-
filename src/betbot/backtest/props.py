@@ -27,6 +27,7 @@ de cocientes) se actualiza igual, siempre despues de predecir.
 from __future__ import annotations
 
 import random
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from betbot.models.props import MERCADOS, PropsModel, log_score
@@ -115,11 +116,16 @@ def walk_forward_props(
     modelo: PropsModel | None = None,
     desde_temporada: int | None = None,
     semilla: int = 20260914,
+    progreso: Callable[[int], None] | None = None,
 ) -> dict[str, ResultadoProps]:
     """Recorre las filas en orden cronologico y evalua antes de aprender.
 
     `filas` debe venir ordenada por (season, week). Cada fila necesita
     player_id, position y la columna de estadistica de cada mercado.
+
+    `progreso` se llama con cada temporada nueva que empieza a procesarse. El
+    recorrido completo tarda minutos sin producir salida, y sin esto no hay
+    forma de distinguir un proceso que avanza de uno colgado.
 
     `desde_temporada` descarta de la EVALUACION los primeros anos, no del
     aprendizaje: las distribuciones empiricas necesitan cientos de casos antes
@@ -135,8 +141,12 @@ def walk_forward_props(
     # Historial por (jugador, mercado). Se mantiene en memoria para no consultar
     # la base una vez por fila: son cientos de miles de filas.
     historiales: dict[tuple[str, str], list[float]] = {}
+    temporada_actual = None
 
     for fila in filas:
+        if progreso is not None and fila["season"] != temporada_actual:
+            temporada_actual = fila["season"]
+            progreso(temporada_actual)
         pid = fila["player_id"]
         posicion = fila["position"] or "?"
         for mercado in mercados:

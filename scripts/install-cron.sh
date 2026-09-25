@@ -5,6 +5,7 @@
 #   bash scripts/install-cron.sh              # deportes por defecto (epl nfl)
 #   bash scripts/install-cron.sh epl nfl nba  # los que quieras
 #   bash scripts/install-cron.sh --colecta nfl   # + archivado de lineas
+#   bash scripts/install-cron.sh --solo-colecta nfl   # SOLO archivado (sin scan)
 
 set -uo pipefail
 
@@ -26,14 +27,89 @@ N_REG=$(printf '%s' "$REGIONES" | awk -F, '{print NF}')
 [ "$N_REG" -lt 1 ] && N_REG=1
 
 COLECTA=0
+SOLO_COLECTA=0
 DEPORTES=()
 for arg in "$@"; do
     case "$arg" in
         --colecta) COLECTA=1 ;;
+        --solo-colecta) SOLO_COLECTA=1 ;;
         *) DEPORTES+=("$arg") ;;
     esac
 done
 [ ${#DEPORTES[@]} -eq 0 ] && DEPORTES=(epl nfl)
+
+# Horario de colecta por deporte. Devuelve lineas de crontab.
+#
+# POR QUE LA NFL TIENE HORARIO PROPIO. Para medir si un precio era bueno hace
+# falta la linea de CIERRE, la de justo antes del kickoff: es la referencia mas
+# eficiente del mercado. Dos barridos fijos (8:00 y 20:00) la pierden casi
+# siempre: el domingo los partidos empiezan a las 11:00, 14:25 y 18:20 de
+# Ciudad de Mexico, y el de las 20:00 llega cuando ya se estan jugando.
+#
+# Horas en hora de Ciudad de Mexico (UTC-6 todo el ano), que es la de tu Mac.
+# Entre septiembre y el 1 de noviembre la costa este va 2 horas por delante;
+# despues, 1. Los barridos estan puestos ANTES del kickoff en ambos periodos,
+# asi que el cambio de horario de EE.UU. solo les da una hora mas de margen.
+colecta_de() {
+    local d="$1" m="$2"
+    case "$d" in
+        nfl)
+            echo "# Linea de la semana (apertura y movimiento), cada manana."
+            echo "$m 9 * * * $WRAP collect --sport nfl"
+            echo "# Cierres del domingo: antes de las ventanas de 11:00, 14:25 y 18:20."
+            echo "30 10 * * 0 $WRAP collect --sport nfl"
+            echo "0 14 * * 0 $WRAP collect --sport nfl"
+            echo "0 18 * * 0 $WRAP collect --sport nfl"
+            echo "# Cierres de lunes y jueves por la noche (kickoff ~18:15)."
+            echo "0 18 * * 1,4 $WRAP collect --sport nfl"
+            echo "# Estadisticas de jugador: nflverse publica con dias de retraso,"
+            echo "# asi que se refresca martes y viernes. No gasta creditos."
+            echo "30 7 * * 2,5 $WRAP ingest-players --from \$(date +\\%Y) --to \$(date +\\%Y)"
+            ;;
+        *)
+            echo "$m 8,20 * * * $WRAP collect --sport $d"
+            ;;
+    esac
+}
+
+# Barridos al mes por deporte, para el presupuesto.
+barridos_mes() {
+    case "$1" in
+        nfl) echo 52 ;;   # 30 diarios + 5 por semana de cierres x ~4.3
+        *)   echo 60 ;;
+    esac
+}
+
+if [ "$SOLO_COLECTA" -eq 1 ]; then
+    BLOQUE="$MARCA
+# Generado por scripts/install-cron.sh --solo-colecta el $(date '+%Y-%m-%d').
+# SOLO archiva cuotas y estadisticas. No escanea, no alerta, no apuesta."
+    MINUTO=5
+    COSTE=0
+    for d in "${DEPORTES[@]}"; do
+        BLOQUE="$BLOQUE
+# --- $d ---
+$(colecta_de "$d" "$MINUTO")"
+        COSTE=$(( COSTE + $(barridos_mes "$d") * 3 * N_REG ))
+        MINUTO=$((MINUTO + 3))
+    done
+    BLOQUE="$BLOQUE
+$FIN"
+
+    echo "Se anadiran estas entradas a tu crontab:"
+    echo "----------------------------------------"
+    echo "$BLOQUE"
+    echo "----------------------------------------"
+    echo
+    echo "Regiones configuradas: $REGIONES ($N_REG) -- la cuota se multiplica por esto."
+    echo "Presupuesto estimado: ~${COSTE} creditos al mes (plan gratuito: 500)."
+    echo
+    echo "IMPORTANTE: cron solo corre si el Mac esta ENCENDIDO y DESPIERTO."
+    echo "Con la tapa cerrada o en reposo, el barrido de esa hora se pierde y"
+    echo "no se repite. Si tienes un servidor que no se apaga, es mejor sitio."
+fi
+
+if [ "$SOLO_COLECTA" -eq 0 ]; then
 
 # Fuente de ingesta por deporte: la que tiene temporada en curso.
 fuente_de() {
@@ -113,7 +189,8 @@ echo
 echo "OJO: el plan gratuito son 500/mes. Con lineshop activo NO cabe."
 echo "Opciones: quitar la linea de lineshop del crontab, subir su intervalo,"
 echo "dejar un solo deporte, reducir ODDS_REGIONS a una sola region en el .env,"
-echo "o pasar a un plan de pago."
+echo "o pasar a un plan de pago. Para solo archivar: --solo-colecta."
+fi
 echo
 read -r -p "¿Instalar? [s/N] " RESP
 case "$RESP" in

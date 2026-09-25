@@ -205,6 +205,10 @@ class PropsModel:
     donde viven las lineas interesantes— son puro ruido."""
 
     # Estado aprendido. Nada de esto se toca desde fuera.
+    # Media posicional como acumulado (suma, n) y no como lista. Con la lista,
+    # cada prediccion volvia a sumar TODO el historico de la posicion: era la
+    # mitad del tiempo del backtest y crecia sin limite. El acumulado da la
+    # misma media en tiempo constante.
     _base_posicion: dict[tuple[str, str], list[float]] = field(default_factory=dict)
     _cocientes: dict[tuple[str, str], list[float]] = field(default_factory=dict)
 
@@ -234,7 +238,7 @@ class PropsModel:
         clave = (posicion, mercado)
         propia = self._media_movil(historial)
         base = self._base_posicion.get(clave)
-        media_pos = (sum(base) / len(base)) if base else propia
+        media_pos = (base[0] / base[1]) if base else propia
 
         n = len(historial)
         media = (n * propia + self.fuerza_encogimiento * media_pos) / (
@@ -262,7 +266,9 @@ class PropsModel:
         es real/proyectado con la proyeccion que se habria hecho en su momento.
         """
         clave = (posicion, mercado)
-        self._base_posicion.setdefault(clave, []).append(real)
+        acum = self._base_posicion.setdefault(clave, [0.0, 0])
+        acum[0] += real
+        acum[1] += 1
         if len(historial) < self.min_partidos:
             return
         media = self._media_movil(historial)

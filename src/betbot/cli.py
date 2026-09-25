@@ -1337,10 +1337,20 @@ def cmd_backtest_props(args: argparse.Namespace) -> int:
         print("Base vacia. Corre: ingest-players --from 1999 --to 2026", file=sys.stderr)
         return 2
 
-    print(f"{len(filas):,} lineas de jugador | evaluando desde {args.desde}\n")
+    temporadas = sorted({f["season"] for f in filas})
+    print(f"{len(filas):,} lineas de jugador | evaluando desde {args.desde}")
+    print(f"Recorre {len(temporadas)} temporadas en orden; tarda unos minutos.\n")
+
+    def avance(temporada: int) -> None:
+        hecho = temporadas.index(temporada)
+        fase = "evaluando" if temporada >= args.desde else "solo aprende"
+        print(f"  {temporada}  ({hecho + 1}/{len(temporadas)}, {fase})", flush=True)
+
     res = walk_forward_props(
-        filas, modelo=PropsModel(decay=args.decay), desde_temporada=args.desde
+        filas, modelo=PropsModel(decay=args.decay), desde_temporada=args.desde,
+        progreso=avance,
     )
+    print()
 
     print(f"{'mercado':<24}{'preds':>10}{'PIT desv':>11}{'Brier':>9}{'logloss':>10}")
     for m, r in res.items():

@@ -336,3 +336,11 @@ def test_proyectar_etiqueta_el_mercado():
         m.observar([250.0] * 10, "QB", "player_pass_yds", 250.0)
     proy = m.proyectar([250.0] * 10, "QB", "player_pass_yds")
     assert proy is not None and proy.mercado == "player_pass_yds"
+
+
+def test_progreso_se_llama_una_vez_por_temporada():
+    vistas: list[int] = []
+    filas = [fila("p1", t, w, 200.0) for t in (2019, 2020) for w in range(1, 6)]
+    walk_forward_props(filas, mercados=("player_pass_yds",),
+                       modelo=PropsModel(min_cocientes=1), progreso=vistas.append)
+    assert vistas == [2019, 2020]
