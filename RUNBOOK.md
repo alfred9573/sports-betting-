@@ -537,8 +537,11 @@ proyecto lleva evitando desde el principio.
 # estado de la base
 .venv/bin/python -m betbot.cli ingest-players --stats
 
-# validar el modelo (tarda ~4 min, no toca la API)
+# validar el modelo (tarda ~1-2 min, no toca la API)
 .venv/bin/python -m betbot.cli backtest-props --calibracion
+
+# anytime TD: compara contra la tasa base de los titulares de su posicion
+.venv/bin/python -m betbot.cli backtest-anytime-td
 ```
 
 Durante la temporada, refrescar solo el año en curso es suficiente y es
@@ -559,9 +562,12 @@ por construcción las separa bien. Mide consistencia interna. Si algún día lee
 ese número como rendimiento esperado, te estarás engañando.
 
 **Lo que sí es real y conviene recordar:** el modelo está condicionado a que el
-jugador juegue (solo hay datos de quien saltó al campo), mientras que el libro sí
-precia la lesión y el descanso. Por eso tus probabilidades de over son
-sistemáticamente optimistas frente a las suyas. Y `player_receptions` sobreestima
+jugador juegue (solo hay datos de quien registró alguna estadística). En la
+mayoría de casas una prop se anula si el jugador no juega, así que eso coincide
+con cómo se liquida — revisa la regla de tu casa. El sesgo que queda es más
+chico: un suplente que entra sin registrar nada puede no tener fila, y el modelo
+ve menos ceros de los reales, lo que infla los overs de jugadores de poco uso.
+Y `player_receptions` sobreestima
 en la cola alta (dice 63%, pasa 58%) de forma estable en dos eras distintas: el
 código lo marca como `COLA_ALTA_DUDOSA` en vez de taparlo con una corrección que
 no funciona.

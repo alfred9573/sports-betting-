@@ -1372,6 +1372,55 @@ def cmd_backtest_props(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_backtest_anytime_td(args: argparse.Namespace) -> int:
+    """Valida el modelo de 'anytime TD' contra la tasa base de su posicion.
+
+    Igual que backtest-props, esto NO mide si se le gana al libro. Mide si el
+    modelo sabe mas que "un RB titular anota ~27% de las veces". Si ni siquiera
+    le gana a eso, no tiene sentido compararlo con el mercado.
+    """
+    import sqlite3
+
+    from betbot.backtest.anytime_td import (
+        brier,
+        calibracion,
+        skill,
+        walk_forward_anytime_td,
+    )
+    from betbot.backtest.props import marca_calibracion
+    from betbot.models.anytime_td import AnytimeTDModel
+
+    conn = sqlite3.connect(args.db)
+    conn.row_factory = sqlite3.Row
+    try:
+        filas = [dict(r) for r in conn.execute(
+            "SELECT player_id, position, season, week, carries, targets, "
+            "rushing_tds, receiving_tds FROM player_weeks "
+            "WHERE season_type='REG' ORDER BY season, week"
+        )]
+    except sqlite3.OperationalError as e:
+        print(f"No hay datos de jugador en {args.db}: {e}", file=sys.stderr)
+        print("Corre primero: ingest-players --from 1999 --to 2026", file=sys.stderr)
+        return 2
+    finally:
+        conn.close()
+    if not filas:
+        print("Base vacia. Corre: ingest-players --from 1999 --to 2026", file=sys.stderr)
+        return 2
+
+    preds = walk_forward_anytime_td(filas, AnytimeTDModel(peso_historial=args.peso))
+    for nombre, desde, hasta in (("2010-2017", 2010, 2017), ("2018-hoy", 2018, 9999)):
+        sub = [x for x in preds if desde <= x.season <= hasta]
+        if not sub:
+            continue
+        print(f"\n{nombre}: {len(sub):,} predicciones | Brier {brier(sub):.5f} "
+              f"(base {brier(sub, base=True):.5f}) | mejora sobre la base {skill(sub):.2%}")
+        for pm, obs, n in calibracion(sub):
+            print(f"   {pm:5.1%} -> {obs:5.1%}  (n={n:,}){marca_calibracion(pm, obs, n)}")
+    print("\nOjo: por encima de ~40% el modelo se pasa unos puntos (ver RESEARCH.md).")
+    return 0
+
+
 def cmd_test_telegram(args: argparse.Namespace) -> int:
     """Comprueba la configuracion de Telegram enviando un mensaje de prueba."""
     from betbot.alerts.telegram import TelegramAlerter
@@ -1568,6 +1617,13 @@ def main(argv: list[str] | None = None) -> int:
                       help="tabla de calibracion detallada")
     p_bp.add_argument("--db", default="data/players.db")
     p_bp.set_defaults(func=cmd_backtest_props)
+
+    p_td = sub.add_parser("backtest-anytime-td",
+                          help="valida el modelo de anytime TD (NO mide si gana al mercado)")
+    p_td.add_argument("--peso", type=float, default=0.70,
+                      help="peso del historial de TDs frente al uso (elegido: 0.70)")
+    p_td.add_argument("--db", default="data/players.db")
+    p_td.set_defaults(func=cmd_backtest_anytime_td)
 
     p_tg = sub.add_parser("test-telegram", help="comprueba las alertas de Telegram")
     p_tg.set_defaults(func=cmd_test_telegram)

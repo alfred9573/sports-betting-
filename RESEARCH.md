@@ -367,18 +367,83 @@ en sentido contrario (33,6% -> 35,1%). El defecto tiene forma; no es
 sobreconfianza uniforme. Queda marcado como `COLA_ALTA_DUDOSA`, que avisa en
 vez de tapar.
 
-### Limite que no se puede corregir
+### Condicionado a jugar (nota corregida)
 
-Solo hay fila para un jugador si JUGO. Todo el modelo esta condicionado a que
-salte al campo. El mercado si precia la baja por lesion, descanso o suplencia,
-de modo que la probabilidad de 'over' de este modelo es sistematicamente
-OPTIMISTA frente a la del libro. Sin datos de participacion no se corrige.
+Solo hay fila para un jugador si registro alguna estadistica. Una version
+anterior de esta nota decia que eso hacia al modelo sistematicamente optimista
+porque el libro precia la baja por lesion y el modelo no. Era exagerado: en la
+mayoria de casas una prop se ANULA si el jugador no juega, asi que el libro
+tampoco cobra ese riesgo y la condicion coincide. El sesgo que queda es mas
+estrecho: jugadores que participan sin registrar estadistica pueden no tener
+fila, y el modelo ve menos ceros de los reales. Pequeno en titulares, no en
+suplentes. Las reglas de anulacion varian por casa.
 
 ### Lo que falta para saber si esto gana dinero
 
 Comparar estas probabilidades contra precios reales. Eso empieza ahora, con lo
 que `betbot collect` archive. Antes de varios cientos de props ya resueltas
 cualquier conclusion es ruido.
+
+## 12. Anytime TD: le gana a la tasa base, pero sobreestima arriba del 15%
+
+Resultado binario (anoto o no), con TDs de carrera y de recepcion; los de pase
+no cuentan en este mercado. Modelo: tasa Poisson que mezcla los TDs propios
+(media movil encogida) con el uso (acarreos + targets) por la tasa de TD por
+toque de la posicion. P(al menos uno) = 1 - exp(-lambda).
+
+### Una base que hacia trampa
+
+La primera comparacion usaba la tasa de TD de toda la plantilla de la posicion,
+suplentes incluidos. Pero el modelo solo predice para jugadores con uso real,
+que anotan mas. Contra esa base rebajada, parte de la "mejora" era solo "este
+jugador si juega". Corregida para medir la base sobre los jugadores ELEGIBLES,
+la mejora en entrenamiento bajo de 5,83% a 5,08%.
+
+### Peso elegido en 2010-2017, validado en 2018-2026
+
+| w (peso de los TDs propios) | Mejora 2010-2017 | Mejora 2018-2026 |
+|---|---|---|
+| 0,00 (solo uso) | 0,64% | 5,15% |
+| 0,30 | 3,45% | 6,34% |
+| 0,50 | 4,60% | 6,61% |
+| **0,70 (elegido)** | **5,08%** | **6,45%** |
+| 1,00 (solo TDs propios) | 4,26% | 5,35% |
+
+La eleccion aguanta fuera de muestra: 6,45% frente a un maximo posible de 6,61%.
+Por posicion en 2018-2026: RB 10,2%, QB 7,6%, WR 4,9%, TE 2,3%, FB -1,7%.
+
+LO QUE ESTA MEJORA NO ES. Saber que un RB con 20 toques anota mas que uno con
+8 no es una ventaja sobre el libro: el libro lo sabe igual. Superar a la tasa
+base es condicion necesaria para que valga la pena comparar con precios, no
+evidencia de que se les vaya a ganar.
+
+### Sesgo por encima del 15%, y dos correcciones que no pasaron
+
+| Predicho | Observado 2010-2017 | Observado 2018-2026 |
+|---|---|---|
+| ~25% | 21,8% | 23,6% |
+| ~35% | 31,7% | 32,5% |
+| ~44% | 38,8% | 42,7% |
+| ~54% | 50,2% | 53,8% |
+
+El exceso es real en las dos eras, pero menguo con el tiempo. Por eso:
+
+- **Correccion fija ajustada en 2010-2017**: mejora el entrenamiento y EMPEORA
+  el holdout (log-loss 0,50381 -> 0,50390), volteando el sesgo a subestimacion
+  (43,8% -> 49,0%). Corrige el pasado, no el presente.
+- **Recalibracion movil, cada temporada con las anteriores**: mejora el total
+  con ventanas de 2, 3 y 5 temporadas (0,50542 -> ~0,5047), pero solo en 8-9 de
+  14 temporadas. No se distingue del azar con claridad.
+
+Ninguna se aplica. Una probabilidad de este modelo por encima del 40% hay que
+leerla varios puntos mas baja.
+
+### Un problema propio del mercado
+
+En muchas casas el anytime TD solo se ofrece del lado "si". Sin el lado "no" no
+se puede quitar el margen con los metodos de `devig`, asi que la comparacion
+tendra que ser directa: EV = p_modelo * cuota - 1, con todo el margen de la casa
+como obstaculo. En props de un solo lado ese margen suele ser grande.
 
 ## Lo que queda vivo
 

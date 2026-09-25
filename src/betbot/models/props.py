@@ -20,12 +20,19 @@ subestima la cola. En vez de eso se usa la distribucion empirica del cociente
 (real / proyectado), agrupada por posicion y mercado sobre partidos pasados: no
 asume forma alguna, respeta el cero y respeta la cola.
 
-RIESGO QUE ESTE MODELO NO CUBRE, Y HAY QUE DECIRLO. Solo hay fila para un
-jugador si JUGO. Es decir, todo esto esta condicionado a que el jugador salte al
-campo. El mercado si precia la posibilidad de que no juegue (lesion, descanso,
-suplencia), asi que la probabilidad de 'over' de este modelo es sistematicamente
-OPTIMISTA frente a la del libro. Sin datos de lesiones y participacion no se
-puede corregir, y pretender lo contrario seria fabricar un edge que no existe.
+CONDICIONADO A JUGAR, Y QUE SESGO QUEDA DE VERDAD. Solo hay fila para un
+jugador si registro alguna estadistica, asi que el modelo esta condicionado a
+que el jugador participe. Eso encaja con como se liquidan las props en la
+mayoria de casas: si el jugador NO juega, la apuesta se anula y se devuelve el
+dinero, de modo que el libro tampoco cobra ese riesgo. (Una version anterior de
+esta nota afirmaba lo contrario —que el libro precia la baja y el modelo no— y
+exageraba el sesgo.) Las reglas varian por casa; hay que comprobar la propia.
+
+El sesgo que si queda es mas estrecho: un jugador que salta al campo pero no
+registra ninguna estadistica (un receptor sin targets) puede no tener fila, y
+entonces el modelo ve menos ceros de los que hay. Eso empuja la probabilidad de
+'over' hacia arriba, sobre todo en jugadores de poco uso. Para titulares es
+pequeno; para suplentes, no.
 """
 
 from __future__ import annotations
