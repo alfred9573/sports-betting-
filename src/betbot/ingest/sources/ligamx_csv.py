@@ -29,7 +29,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
-from betbot.ingest.http import CachedFetcher
+from betbot.ingest.http import CachedFetcher, caducidad
 from betbot.ingest.teams import TeamRegistry, UnknownTeamError
 from betbot.ingest.types import GameResult
 from betbot.types import Sport
@@ -68,7 +68,11 @@ class LigaMX:
         if label not in AVAILABLE:
             log.warning("temporada %s no disponible en la fuente", label)
             return []
-        raw = self.fetcher.get_text(self.season_url(season), suffix=".csv")
+        # Temporada S = Apertura S + Clausura S+1; termina en junio de S+1.
+        raw = self.fetcher.get_text(
+            self.season_url(season), suffix=".csv",
+            max_age=caducidad(date(season + 1, 7, 1)),
+        )
         return self.parse(raw, season)
 
     def fetch_range(self, first: int, last: int) -> list[GameResult]:

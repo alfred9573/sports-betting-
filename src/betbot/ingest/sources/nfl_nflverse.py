@@ -19,7 +19,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from betbot.ingest.http import CachedFetcher
+from betbot.ingest.http import VIVO, CachedFetcher
 from betbot.ingest.teams import TeamRegistry, UnknownTeamError
 from betbot.ingest.types import GameResult
 from betbot.types import Sport
@@ -42,7 +42,8 @@ class NFLverse:
     skipped: list[str] = field(default_factory=list, repr=False)
 
     def _rows(self) -> list[dict]:
-        raw = self.fetcher.get_text(self.url, suffix=".csv")
+        # Un solo archivo con TODAS las temporadas, que crece cada semana: vivo.
+        raw = self.fetcher.get_text(self.url, suffix=".csv", max_age=VIVO)
         return list(csv.DictReader(io.StringIO(raw)))
 
     def fetch_season(self, season: int) -> list[GameResult]:

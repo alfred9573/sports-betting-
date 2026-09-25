@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
-from betbot.ingest.http import CachedFetcher
+from betbot.ingest.http import CachedFetcher, caducidad
 from betbot.ingest.teams import TeamRegistry, UnknownTeamError
 from betbot.ingest.types import GameResult
 from betbot.types import Sport
@@ -48,11 +48,15 @@ class MLBStatsAPI:
             f"{BASE}/schedule?sportId=1&gameTypes={game_types}"
             f"&startDate={season}-01-01&endDate={season}-12-31"
         )
-        return self.parse(self.fetcher.get_json(url), season)
+        # La temporada S termina con la Serie Mundial, a finales de octubre.
+        vivo = caducidad(date(season, 11, 15))
+        return self.parse(self.fetcher.get_json(url, max_age=vivo), season)
 
     def fetch_date(self, day: date) -> list[GameResult]:
         url = f"{BASE}/schedule?sportId=1&date={day.isoformat()}"
-        return self.parse(self.fetcher.get_json(url), day.year)
+        # Un marcador de dia puede corregirse los dias siguientes.
+        vivo = caducidad(day - timedelta(days=27))
+        return self.parse(self.fetcher.get_json(url, max_age=vivo), day.year)
 
     def parse(self, payload: dict, season: int) -> list[GameResult]:
         out: list[GameResult] = []

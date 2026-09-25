@@ -33,9 +33,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 
-from betbot.ingest.http import CachedFetcher
+from betbot.ingest.http import CachedFetcher, caducidad
 from betbot.ingest.teams import TeamRegistry, UnknownTeamError
 from betbot.ingest.types import GameResult
 from betbot.types import Sport
@@ -83,7 +83,10 @@ class OpenFootballJSON:
 
     def fetch_season(self, season: int) -> list[GameResult]:
         try:
-            payload = self.fetcher.get_json(self.season_url(season))
+            # Temporada S = S/S+1 (ano de inicio); termina en junio de S+1.
+            payload = self.fetcher.get_json(
+                self.season_url(season), max_age=caducidad(date(season + 1, 7, 1))
+            )
         except Exception as e:  # noqa: BLE001 - una temporada ausente no es un error fatal
             log.warning("temporada %s no disponible: %s", self.season_label(season), e)
             return []

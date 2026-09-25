@@ -15,7 +15,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
-from betbot.ingest.http import CachedFetcher
+from betbot.ingest.http import CachedFetcher, caducidad
 from betbot.ingest.teams import TeamRegistry, UnknownTeamError
 from betbot.ingest.types import GameResult
 from betbot.types import Sport
@@ -95,7 +95,9 @@ class ESPNScoreboard:
 
     def fetch_day(self, day: date) -> list[GameResult]:
         url = f"{BASE}/{ESPN_PATHS[self.sport]}/scoreboard?dates={day:%Y%m%d}"
-        return self.parse(self.fetcher.get_json(url))
+        # Un marcador de dia puede corregirse los dias siguientes.
+        vivo = caducidad(day - timedelta(days=27))
+        return self.parse(self.fetcher.get_json(url, max_age=vivo))
 
     def fetch_days(self, start: date, end: date) -> list[GameResult]:
         """Dia a dia: el scoreboard de ESPN solo devuelve una fecha por llamada.

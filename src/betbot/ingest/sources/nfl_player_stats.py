@@ -24,8 +24,9 @@ import csv
 import io
 import logging
 from dataclasses import dataclass, field
+from datetime import date
 
-from betbot.ingest.http import CachedFetcher
+from betbot.ingest.http import CachedFetcher, caducidad
 
 log = logging.getLogger(__name__)
 
@@ -84,7 +85,11 @@ class NFLPlayerStats:
     descartados: list[str] = field(default_factory=list, repr=False)
 
     def fetch_season(self, season: int) -> list[PlayerWeek]:
-        raw = self.fetcher.get_text(URL_BASE.format(season=season), suffix=".csv")
+        # La temporada S termina con el Super Bowl de febrero de S+1.
+        raw = self.fetcher.get_text(
+            URL_BASE.format(season=season), suffix=".csv",
+            max_age=caducidad(date(season + 1, 3, 1)),
+        )
         return self.parse(list(csv.DictReader(io.StringIO(raw))), season)
 
     def fetch_range(self, first: int, last: int) -> list[PlayerWeek]:

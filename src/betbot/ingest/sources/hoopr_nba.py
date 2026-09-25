@@ -34,7 +34,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from betbot.ingest.http import CachedFetcher
+from betbot.ingest.http import VIVO, CachedFetcher
 from betbot.ingest.teams import TeamRegistry, UnknownTeamError
 from betbot.ingest.types import GameResult
 from betbot.types import Sport
@@ -68,7 +68,8 @@ class HoopRNBA:
 
     def _rows(self) -> list[dict]:
         # ~38 MB. El cache en disco hace que la segunda vez sea instantanea.
-        raw = self.fetcher.get_text(self.url, suffix=".csv")
+        # Calendario maestro de todas las temporadas, crece cada dia: vivo.
+        raw = self.fetcher.get_text(self.url, suffix=".csv", max_age=VIVO)
         return list(csv.DictReader(io.StringIO(raw)))
 
     def fetch_season(self, season: int) -> list[GameResult]:
