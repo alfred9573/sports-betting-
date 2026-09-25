@@ -1623,6 +1623,13 @@ def _telegram_para_papel():
     return TelegramAlerter(settings.telegram_bot_token, settings.telegram_chat_id)
 
 
+def cmd_configurar_telegram(args: argparse.Namespace) -> int:
+    """Pide el token, encuentra el chat id solo y manda un mensaje de prueba."""
+    from betbot.alerts.configurar import configurar
+
+    return configurar(env=args.env)
+
+
 def cmd_test_telegram(args: argparse.Namespace) -> int:
     """Comprueba la configuracion de Telegram enviando un mensaje de prueba."""
     from betbot.alerts.telegram import TelegramAlerter
@@ -1631,7 +1638,8 @@ def cmd_test_telegram(args: argparse.Namespace) -> int:
     if not settings.telegram_bot_token:
         print(
             "Falta TELEGRAM_BOT_TOKEN en .env.\n\n"
-            "Como conseguirlo:\n"
+            "Lo mas facil:  betbot configurar-telegram\n\n"
+            "A mano:\n"
             "  1. En Telegram, habla con @BotFather\n"
             "  2. Manda /newbot y sigue las instrucciones\n"
             "  3. Te da un token tipo 123456789:AAF...\n"
@@ -1854,6 +1862,11 @@ def main(argv: list[str] | None = None) -> int:
     p_pp.add_argument("--registro", default="data/papel.db")
     p_pp.add_argument("--db", default=None, help="estadisticas de jugador")
     p_pp.set_defaults(func=cmd_papel)
+
+    p_ct = sub.add_parser("configurar-telegram",
+                          help="configura Telegram paso a paso (token y chat id)")
+    p_ct.add_argument("--env", default=".env")
+    p_ct.set_defaults(func=cmd_configurar_telegram)
 
     p_tg = sub.add_parser("test-telegram", help="comprueba las alertas de Telegram")
     p_tg.set_defaults(func=cmd_test_telegram)

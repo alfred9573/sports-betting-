@@ -655,10 +655,11 @@ el plan gratuito, pero justo. NBA con props no cabe sin un plan de pago.
 un mensaje cada sábado con lo que apuntó (o con que no encontró líneas, que es
 la señal de que falló el barrido) y otro cada vez que califica. Todos llevan
 "PAPEL: no son picks, no apostar". Si un sábado no llega nada, algo se rompió:
-revisa `logs/papel.log`. Para comprobar la configuración:
+revisa `logs/papel.log`. Para configurarlo (pide el token de @BotFather,
+encuentra solo tu chat y manda una prueba):
 
 ```bash
-betbot test-telegram
+betbot configurar-telegram
 ```
 
 **Qué mirar y cuándo:** primero el **CLV medio**. Si durante las primeras
