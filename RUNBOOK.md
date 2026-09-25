@@ -572,6 +572,54 @@ en la cola alta (dice 63%, pasa 58%) de forma estable en dos eras distintas: el
 código lo marca como `COLA_ALTA_DUDOSA` en vez de taparlo con una corrección que
 no funciona.
 
+## 5g. NBA: estadísticas de jugador y props
+
+Mismo modelo que las props de NFL, otra fuente (hoopR, 2002-actual). Los
+archivos vienen en formato parquet, así que hace falta una librería extra, una
+sola vez:
+
+```bash
+.venv/bin/pip install pyarrow
+```
+
+Luego:
+
+```bash
+# 25 temporadas, ~850k filas, ~1 minuto
+betbot ingest-players --sport nba
+
+# validar el modelo (~2-3 minutos, no toca la API)
+betbot backtest-props --sport nba --calibracion
+```
+
+**Cómo se nombran las temporadas, porque confunde:** NBA usa el año en que
+TERMINA la temporada. La 2026 es la 2025-26, y la que arranca en octubre es la
+**2027**. NFL usa el año en que empieza. `--actual` resuelve eso solo: siempre
+pide la temporada en curso de cada liga.
+
+**Qué tiene NBA que NFL no:** el archivo trae a toda la plantilla, incluidos los
+que no jugaron, con sus minutos. El modelo usa "jugó = minutos > 0", que es
+exactamente cuando una casa NO anula la prop. En NFL eso no se puede.
+
+**Recolección de líneas de NBA y el presupuesto.** El instalador ya tiene el
+horario de NBA (apertura a las 9:00 y cierres antes de las tandas de 19:00 y
+22:00 de la costa este), pero NFL + NBA no caben juntos en el plan gratuito con
+dos regiones:
+
+| Configuración | Créditos/mes |
+|---|---|
+| NFL, `us,eu` | ~312 |
+| NFL + NBA, `us,eu` | ~852 (no cabe) |
+| NFL + NBA, solo `us` | ~426 |
+
+Quitar `eu` te deja sin casas europeas ni exchanges, que son la mejor referencia
+de precio sin margen. Es una decisión tuya; el instalador te muestra la cuenta
+antes de tocar nada:
+
+```bash
+bash scripts/install-cron.sh --solo-colecta nfl nba
+```
+
 ## 6. Dinero de papel: qué mirar y cuándo decidir
 
 Apunta las señales en papel. No muevas dinero real todavía.

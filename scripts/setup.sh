@@ -39,7 +39,7 @@ fi
 
 echo "Instalando dependencias..."
 "$VENV_PY" -m pip install -q --upgrade pip
-"$VENV_PY" -m pip install -q -e ".[dev]"
+"$VENV_PY" -m pip install -q -e ".[dev,nba]"
 
 # --- Verificacion ---
 echo

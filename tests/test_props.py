@@ -272,8 +272,8 @@ def test_la_correccion_solo_toca_los_mercados_validados():
     """Los tres mercados de yardas no llevan correccion: no tenian defecto."""
     from betbot.models.props import CALIBRACION
 
-    assert set(CALIBRACION) == {"player_pass_tds"}
-    assert CALIBRACION["player_pass_tds"] < 1.0   # encoge hacia la base
+    assert set(CALIBRACION) == {"player_pass_tds", "player_threes"}
+    assert all(a < 1.0 for a in CALIBRACION.values())   # ambas encogen
 
 
 def test_la_correccion_encoge_hacia_la_mitad():
@@ -375,3 +375,10 @@ def test_diferencia_minima_en_cubo_enorme_no_se_marca():
     from betbot.backtest.props import marca_calibracion
 
     assert marca_calibracion(0.345, 0.354, 19959) == ""
+
+
+def test_los_mercados_corregidos_siguen_marcados_como_dudosos():
+    """La correccion mejora pass_tds y threes, pero su cola alta sigue inflada."""
+    from betbot.models.props import CALIBRACION, COLA_ALTA_DUDOSA
+
+    assert set(CALIBRACION) <= COLA_ALTA_DUDOSA

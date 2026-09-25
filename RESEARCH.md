@@ -445,6 +445,72 @@ se puede quitar el margen con los metodos de `devig`, asi que la comparacion
 tendra que ser directa: EV = p_modelo * cuota - 1, con todo el margen de la casa
 como obstaculo. En props de un solo lado ese margen suele ser grande.
 
+## 13. Props de NBA: el mismo modelo, mejor calibrado
+
+Fuente: hoopR (espejo de ESPN), 2002-2026. 848.095 filas, 666.468 partidos
+jugados, 2.577 jugadores. A diferencia de NFL, trae a TODA la plantilla con sus
+minutos, incluidos los que no jugaron. Se define "jugo" como minutos > 0, que es
+cuando una casa no anula la prop: el sesgo de participacion que en NFL no se
+puede corregir aqui no existe.
+
+Tres cosas del dato resueltas en el codigo: la temporada se nombra por su ano de
+FIN (2026 = 2025-26); la notacion de posiciones cambio con los anos (PG/SG/SF/PF
+en 2002, G/F/C desde ~2020) y se unifica a G/F/C; y ~150-200 filas por temporada
+no marcadas como DNP pero sin minutos quedan fuera.
+
+### Calibracion (walk-forward desde 2010, 890.000 predicciones)
+
+| Mercado | Predicciones | Desv. PIT | Brier |
+|---|---|---|---|
+| player_points | 240.374 | 0,13% | 0,2386 |
+| player_rebounds | 262.778 | 0,09% | 0,2368 |
+| player_assists | 174.677 | 0,11% | 0,2365 |
+| player_threes | 211.824 | 0,43% | 0,2309 |
+
+Puntos, rebotes y asistencias salen tres a cinco veces mejor calibrados que
+cualquier mercado de NFL (0,35-0,72%). Mas partidos por jugador y un resultado
+menos dependiente de jugadas sueltas.
+
+### Estabilidad y correccion (2010-2017 -> 2018-2026)
+
+| Mercado | Cola alta 2010-17 | Cola alta 2018-26 | a | Holdout log-loss | Veredicto |
+|---|---|---|---|---|---|
+| points | 61,4 -> 60,5 | 61,3 -> 60,8 | 0,98 | 0,66979 -> 0,66980 | sin defecto |
+| rebounds | 62,3 -> 60,1 | 62,3 -> 61,3 | 0,98 | 0,66589 -> 0,66589 | sin defecto |
+| assists | 63,8 -> 59,4 | 63,8 -> 60,1 | 0,96 | 0,66630 -> 0,66621 | irrelevante |
+| **threes** | **65,0 -> 59,8** | **65,7 -> 59,6** | **0,88** | **0,65654 -> 0,65556** | **aplicada** |
+
+Triples reproduce el patron de los touchdowns de pase: un conteo con pocos
+valores posibles, con las DOS colas desviadas hacia fuera e identicas en ambas
+eras (abajo: 19,7 -> 24,3 y 19,6 -> 24,2). Es sobreconfianza uniforme, justo lo
+que corrige un encogimiento global. El mismo mecanismo en dos deportes distintos
+es la mejor evidencia de que no es ruido.
+
+Con la correccion aplicada, la cola baja de triples queda limpia (27,2% frente a
+26,8% predicho) y el log-loss total baja de 0,6541 a 0,6531, pero la cola alta
+sigue unos 4 puntos inflada (64,0% -> 59,9%). Pasa lo mismo que con touchdowns
+de pase tras su correccion (66,0% -> 61,5%). Los dos quedan corregidos Y marcados
+como `COLA_ALTA_DUDOSA`: corregido no significa fiable por encima del 60%.
+
+Asistencias repite el caso de recepciones en NFL: la cola alta se pasa en las
+dos eras, pero los cubos medios van al reves y un parametro global no la
+arregla. Marcada como `COLA_ALTA_DUDOSA`.
+
+### Rendimiento
+
+Tres cambios sin efecto en los resultados (NFL verificado identico hasta el
+decimo decimal tras cada uno): media movil cortada donde el peso cae por debajo
+de 1e-9 (las carreras de NBA superan los 1.500 partidos y el coste era
+cuadratico), insercion ordenada en vez de reordenar la lista entera, y la media
+del mismo historial reutilizada entre predecir y aprender. Subconjunto de NBA:
+60,9s -> 9,9s. Backtest completo: ~2 minutos.
+
+### Lo que falta
+
+Igual que en NFL: comparar contra precios reales. La temporada 2026-27 arranca a
+finales de octubre, y archivar sus lineas choca con el presupuesto del plan
+gratuito (ver RUNBOOK 5g).
+
 ## Lo que queda vivo
 
 Nada, con las casas disponibles desde México.

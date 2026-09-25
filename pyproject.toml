@@ -15,6 +15,10 @@ dependencies = ["certifi>=2024.2.2"]
 [project.optional-dependencies]
 dev = ["pytest>=7.4", "ruff>=0.4"]
 data = ["pandas>=2.0", "requests>=2.31"]   # solo para ingesta/backtesting historico
+# Estadisticas de jugador de NBA: hoopR solo las publica en parquet. Es opcional
+# para no imponer ~40 MB a quien solo usa NFL; `ingest-players --sport nba`
+# explica como instalarlo si falta.
+nba = ["pyarrow>=14"]
 
 [project.scripts]
 betbot = "betbot.cli:main"

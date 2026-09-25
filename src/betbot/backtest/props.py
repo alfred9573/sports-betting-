@@ -139,11 +139,15 @@ def walk_forward_props(
     desde_temporada: int | None = None,
     semilla: int = 20260914,
     progreso: Callable[[int], None] | None = None,
+    columnas: dict[str, str] | None = None,
 ) -> dict[str, ResultadoProps]:
     """Recorre las filas en orden cronologico y evalua antes de aprender.
 
     `filas` debe venir ordenada por (season, week). Cada fila necesita
     player_id, position y la columna de estadistica de cada mercado.
+
+    `columnas` mapea mercado -> columna de la fila. Por defecto el de NFL;
+    NBA pasa `MERCADOS_NBA`.
 
     `progreso` se llama con cada temporada nueva que empieza a procesarse. El
     recorrido completo tarda minutos sin producir salida, y sin esto no hay
@@ -155,6 +159,7 @@ def walk_forward_props(
     arranque en frio, no el modelo.
     """
     modelo = modelo or PropsModel()
+    columnas = columnas or MERCADOS
     # Semilla fija: el PIT aleatorizado necesita un uniforme para repartir la
     # masa de los empates, pero un backtest que da un numero distinto en cada
     # corrida no se puede auditar.
@@ -172,7 +177,7 @@ def walk_forward_props(
         pid = fila["player_id"]
         posicion = fila["position"] or "?"
         for mercado in mercados:
-            columna = MERCADOS[mercado]
+            columna = columnas[mercado]
             real = float(fila.get(columna) or 0.0)
             clave = (pid, mercado)
             historial = historiales.setdefault(clave, [])

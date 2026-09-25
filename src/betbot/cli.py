@@ -1263,6 +1263,34 @@ def _ts_evento(valor) -> datetime | None:
         return None
 
 
+def temporada_en_curso(deporte: str, hoy=None) -> int:
+    """Temporada vigente o mas reciente, en la convencion de cada fuente.
+
+    NFL (nflverse) nombra la temporada por su ano de INICIO: la que se juega de
+    septiembre de 2026 a febrero de 2027 es la 2026. NBA (hoopR) la nombra por su
+    ano de FIN: la de octubre de 2026 a junio de 2027 es la 2027. Confundirlas
+    hace que el refresco semanal pida una temporada que no existe o se salte la
+    que esta en juego.
+    """
+    from datetime import date
+
+    hoy = hoy or date.today()
+    if deporte == "nba":
+        return hoy.year + 1 if hoy.month >= 10 else hoy.year
+    return hoy.year if hoy.month >= 8 else hoy.year - 1
+
+
+def _rango_por_defecto(args: argparse.Namespace) -> None:
+    if getattr(args, "actual", False):
+        args.desde = args.hasta = temporada_en_curso(args.sport)
+        return
+    primera = {"nfl": 1999, "nba": 2002}[args.sport]
+    if args.desde is None:
+        args.desde = primera
+    if args.hasta is None:
+        args.hasta = temporada_en_curso(args.sport)
+
+
 def cmd_ingest_players(args: argparse.Namespace) -> int:
     """Descarga estadisticas semanales de jugador de NFL (nflverse, 1999-actual).
 
@@ -1271,9 +1299,14 @@ def cmd_ingest_players(args: argparse.Namespace) -> int:
     libro. La reingesta es idempotente, asi que correrlo cada semana durante la
     temporada refresca sin duplicar.
     """
+    _rango_por_defecto(args)
+    if args.sport == "nba":
+        return _ingest_players_nba(args)
+
     from betbot.ingest.player_store import PlayerStore
     from betbot.ingest.sources.nfl_player_stats import NFLPlayerStats
 
+    args.db = args.db or "data/players.db"
     store = PlayerStore(args.db)
     if args.stats:
         r = store.resumen()
@@ -1303,6 +1336,46 @@ def cmd_ingest_players(args: argparse.Namespace) -> int:
     return 0
 
 
+def _ingest_players_nba(args: argparse.Namespace) -> int:
+    """Estadisticas por partido de NBA (hoopR). Temporada = ano en que TERMINA."""
+    from betbot.ingest.nba_player_store import NBAPlayerStore
+    from betbot.ingest.sources.nba_player_box import FALTA_PYARROW, NBAPlayerBox
+
+    args.db = args.db or "data/nba_players.db"
+    store = NBAPlayerStore(args.db)
+    if args.stats:
+        r = store.resumen()
+        if not r["filas"]:
+            print(f"Sin datos en {args.db}. Corre: ingest-players --sport nba "
+                  f"--from 2002 --to 2026")
+            return 0
+        print(f"{r['filas']:,} filas ({r['jugados']:,} partidos jugados) | "
+              f"{r['jugadores']:,} jugadores | temporadas {r['desde']}-{r['hasta']} | "
+              f"ultimo partido: {r['ultimo']}")
+        return 0
+
+    try:
+        import pyarrow  # noqa: F401
+    except ImportError:
+        print(FALTA_PYARROW, file=sys.stderr)
+        return 2
+
+    fuente = NBAPlayerBox()
+    total = 0
+    for temporada in range(args.desde, args.hasta + 1):
+        try:
+            filas = fuente.fetch_season(temporada)
+        except Exception as e:
+            print(f"  {temporada}: no disponible ({e})", file=sys.stderr)
+            continue
+        total += store.upsert_many(filas)
+        jugados = sum(1 for f in filas if f.jugo)
+        print(f"  {temporada} ({temporada - 1}-{str(temporada)[-2:]}): "
+              f"{len(filas):,} filas, {jugados:,} jugados")
+    print(f"\n{total:,} filas guardadas en {args.db}")
+    return 0
+
+
 def cmd_backtest_props(args: argparse.Namespace) -> int:
     """Valida el MODELO de props contra 27 temporadas reales.
 
@@ -1316,25 +1389,36 @@ def cmd_backtest_props(args: argparse.Namespace) -> int:
     import sqlite3
 
     from betbot.backtest.props import marca_calibracion, walk_forward_props
-    from betbot.models.props import MERCADOS, PropsModel
+    from betbot.models.props import MERCADOS, MERCADOS_NBA, PropsModel
 
-    columnas = sorted(set(MERCADOS.values()))
-    conn = sqlite3.connect(args.db)
-    conn.row_factory = sqlite3.Row
-    try:
-        filas = [dict(r) for r in conn.execute(
-            f"SELECT player_id, position, season, week, {','.join(columnas)} "
-            f"FROM player_weeks WHERE season_type='REG' ORDER BY season, week"
-        )]
-    except sqlite3.OperationalError as e:
-        print(f"No hay datos de jugador en {args.db}: {e}", file=sys.stderr)
-        print("Corre primero: ingest-players --from 1999 --to 2026", file=sys.stderr)
-        return 2
-    finally:
-        conn.close()
+    if args.sport == "nba":
+        from betbot.ingest.nba_player_store import NBAPlayerStore
+
+        args.db = args.db or "data/nba_players.db"
+        mapa = MERCADOS_NBA
+        como_ingerir = "ingest-players --sport nba --from 2002 --to 2026"
+        filas = NBAPlayerStore(args.db).filas_para_modelo()
+    else:
+        args.db = args.db or "data/players.db"
+        mapa = MERCADOS
+        como_ingerir = "ingest-players --from 1999 --to 2026"
+        columnas = sorted(set(MERCADOS.values()))
+        conn = sqlite3.connect(args.db)
+        conn.row_factory = sqlite3.Row
+        try:
+            filas = [dict(r) for r in conn.execute(
+                f"SELECT player_id, position, season, week, {','.join(columnas)} "
+                f"FROM player_weeks WHERE season_type='REG' ORDER BY season, week"
+            )]
+        except sqlite3.OperationalError as e:
+            print(f"No hay datos de jugador en {args.db}: {e}", file=sys.stderr)
+            print(f"Corre primero: {como_ingerir}", file=sys.stderr)
+            return 2
+        finally:
+            conn.close()
 
     if not filas:
-        print("Base vacia. Corre: ingest-players --from 1999 --to 2026", file=sys.stderr)
+        print(f"Base vacia. Corre: {como_ingerir}", file=sys.stderr)
         return 2
 
     temporadas = sorted({f["season"] for f in filas})
@@ -1347,7 +1431,8 @@ def cmd_backtest_props(args: argparse.Namespace) -> int:
         print(f"  {temporada}  ({hecho + 1}/{len(temporadas)}, {fase})", flush=True)
 
     res = walk_forward_props(
-        filas, modelo=PropsModel(decay=args.decay), desde_temporada=args.desde,
+        filas, mercados=tuple(mapa), columnas=mapa,
+        modelo=PropsModel(decay=args.decay), desde_temporada=args.desde,
         progreso=avance,
     )
     print()
@@ -1602,20 +1687,26 @@ def main(argv: list[str] | None = None) -> int:
 
     p_ip = sub.add_parser("ingest-players",
                           help="estadisticas semanales de jugador de NFL (nflverse)")
-    p_ip.add_argument("--from", dest="desde", type=int, default=1999)
-    p_ip.add_argument("--to", dest="hasta", type=int, default=2026)
+    p_ip.add_argument("--sport", choices=("nfl", "nba"), default="nfl")
+    p_ip.add_argument("--from", dest="desde", type=int, default=None,
+                      help="primera temporada (NFL: 1999; NBA: 2002, ano en que termina)")
+    p_ip.add_argument("--to", dest="hasta", type=int, default=None)
+    p_ip.add_argument("--actual", action="store_true",
+                      help="solo la temporada en curso (para el refresco del cron)")
     p_ip.add_argument("--stats", action="store_true", help="estado de la base")
-    p_ip.add_argument("--db", default="data/players.db")
+    p_ip.add_argument("--db", default=None,
+                      help="por defecto data/players.db (NFL) o data/nba_players.db (NBA)")
     p_ip.set_defaults(func=cmd_ingest_players)
 
     p_bp = sub.add_parser("backtest-props",
                           help="valida el modelo de props (NO mide si gana al mercado)")
+    p_bp.add_argument("--sport", choices=("nfl", "nba"), default="nfl")
     p_bp.add_argument("--desde", type=int, default=2010,
                       help="primera temporada evaluada; las previas solo entrenan")
     p_bp.add_argument("--decay", type=float, default=0.90)
     p_bp.add_argument("--calibracion", action="store_true",
                       help="tabla de calibracion detallada")
-    p_bp.add_argument("--db", default="data/players.db")
+    p_bp.add_argument("--db", default=None)
     p_bp.set_defaults(func=cmd_backtest_props)
 
     p_td = sub.add_parser("backtest-anytime-td",

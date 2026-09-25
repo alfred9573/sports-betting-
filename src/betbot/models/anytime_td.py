@@ -85,9 +85,14 @@ class AnytimeTDModel:
     _toques_pos: dict[str, list[float]] = field(default_factory=dict)  # [tds, toques]
 
     def _media_movil(self, valores: list[float]) -> float:
+        # Mismo corte que en props: pasado ~200 partidos el peso es < 1e-9.
+        corte = (
+            math.ceil(math.log(1e-9) / math.log(self.decay))
+            if 0.0 < self.decay < 1.0 else len(valores)
+        )
         num = den = 0.0
         peso = 1.0
-        for v in reversed(valores):
+        for v in reversed(valores[-max(1, corte):]):
             num += peso * v
             den += peso
             peso *= self.decay

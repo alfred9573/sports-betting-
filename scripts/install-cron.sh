@@ -64,7 +64,19 @@ colecta_de() {
             echo "0 18 * * 1,4 $WRAP collect --sport nfl"
             echo "# Estadisticas de jugador: nflverse publica con dias de retraso,"
             echo "# asi que se refresca martes y viernes. No gasta creditos."
-            echo "30 7 * * 2,5 $WRAP ingest-players --from \$(date +\\%Y) --to \$(date +\\%Y)"
+            echo "30 7 * * 2,5 $WRAP ingest-players --actual"
+            ;;
+        nba)
+            # Partidos a las 19:00 y 22:00 de la costa este: 17:00 y 20:00 de
+            # CDMX hasta el 1 de noviembre, 18:00 y 21:00 despues. Los barridos
+            # van antes de ambas ventanas en los dos periodos.
+            echo "# Linea del dia (apertura), cada manana."
+            echo "$m 9 * * * $WRAP collect --sport nba"
+            echo "# Cierres: antes de la tanda de las 19:00 ET y de la de las 22:00 ET."
+            echo "45 16 * * * $WRAP collect --sport nba"
+            echo "45 19 * * * $WRAP collect --sport nba"
+            echo "# Estadisticas de jugador, cada manana. No gasta creditos."
+            echo "40 7 * * * $WRAP ingest-players --sport nba --actual"
             ;;
         *)
             echo "$m 8,20 * * * $WRAP collect --sport $d"
@@ -76,6 +88,7 @@ colecta_de() {
 barridos_mes() {
     case "$1" in
         nfl) echo 52 ;;   # 30 diarios + 5 por semana de cierres x ~4.3
+        nba) echo 90 ;;   # 3 diarios
         *)   echo 60 ;;
     esac
 }
@@ -103,6 +116,15 @@ $FIN"
     echo
     echo "Regiones configuradas: $REGIONES ($N_REG) -- la cuota se multiplica por esto."
     echo "Presupuesto estimado: ~${COSTE} creditos al mes (plan gratuito: 500)."
+    if [ "$COSTE" -gt 500 ]; then
+        echo
+        echo "OJO: NO CABE en el plan gratuito. A mitad de mes se agota la cuota y"
+        echo "el archivo deja de crecer justo cuando mas partidos hay. Opciones:"
+        echo "  - ODDS_REGIONS=us en el .env (la mitad de coste, pero pierdes las"
+        echo "    casas europeas y los exchanges, la mejor referencia sin margen);"
+        echo "  - instalar menos deportes;"
+        echo "  - pasar a un plan de pago."
+    fi
     echo
     echo "IMPORTANTE: cron solo corre si el Mac esta ENCENDIDO y DESPIERTO."
     echo "Con la tapa cerrada o en reposo, el barrido de esa hora se pierde y"
