@@ -32,7 +32,9 @@ TS="$(date '+%Y-%m-%d %H:%M:%S')"
 
 {
     echo "===== $TS  betbot $* ====="
-    "$PY" -m betbot.cli "$@" 2>&1
+    # Prioridad baja: en un servidor compartido (p. ej. con un bot de trading)
+    # el entrenamiento de los modelos no debe quitarle CPU a nadie.
+    nice -n 10 "$PY" -m betbot.cli "$@" 2>&1
     ESTADO=$?
     [ $ESTADO -ne 0 ] && echo "[salida con codigo $ESTADO]"
     echo

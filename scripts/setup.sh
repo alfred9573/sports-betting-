@@ -8,7 +8,9 @@ echo "=== Directorio: $(pwd) ==="
 
 # --- Python ---
 PY=""
-for c in python3 python; do
+# Primero los binarios versionados: en Ubuntu 22.04 `python3` es 3.10 y el
+# Python moderno se instala aparte como `python3.12`.
+for c in python3.13 python3.12 python3.11 python3 python; do
     if command -v "$c" >/dev/null 2>&1; then
         V=$("$c" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "0.0")
         MAJOR=${V%%.*}; MINOR=${V##*.}
@@ -28,7 +30,12 @@ echo "Python: $($PY --version)"
 # --- Entorno virtual ---
 if [ ! -d .venv ]; then
     echo "Creando entorno virtual..."
-    "$PY" -m venv .venv
+    if ! "$PY" -m venv .venv; then
+        rm -rf .venv
+        echo "ERROR: no se pudo crear el entorno virtual."
+        echo "  En Ubuntu/Debian falta el paquete venv:  sudo apt install ${PY}-venv"
+        exit 1
+    fi
 fi
 
 if [ -f .venv/bin/activate ]; then

@@ -27,6 +27,24 @@ fi
 N_REG=$(printf '%s' "$REGIONES" | awk -F, '{print NF}')
 [ "$N_REG" -lt 1 ] && N_REG=1
 
+# Los horarios se escriben en hora de Ciudad de Mexico (van pegados a los
+# kickoffs) y se convierten a la hora de ESTA maquina antes de instalarlos. En
+# un servidor en UTC, sin esto, el "cierre" del domingo 10:30 se ejecutaria a
+# las 4:30 de Mexico y guardaria un precio que no es el de cierre.
+if [ -x "$REPO/.venv/bin/python" ]; then
+    PY_BOT="$REPO/.venv/bin/python"
+else
+    PY_BOT=""
+fi
+convertir_horas() {
+    if [ -n "$PY_BOT" ]; then
+        BLOQUE="$(printf '%s\n' "$BLOQUE" | PYTHONPATH="$REPO/src" "$PY_BOT" -m betbot.cronhora)"
+    else
+        echo "AVISO: sin entorno virtual no puedo convertir las horas. Si esta maquina"
+        echo "no esta en hora de Ciudad de Mexico, corre antes: bash scripts/setup.sh"
+    fi
+}
+
 COLECTA=0
 SOLO_COLECTA=0
 PROPS=0
@@ -142,6 +160,7 @@ $(colecta_de "$d" "$MINUTO")"
     done
     BLOQUE="$BLOQUE
 $FIN"
+    convertir_horas
 
     echo "Se anadiran estas entradas a tu crontab:"
     echo "----------------------------------------"
@@ -160,9 +179,11 @@ $FIN"
         echo "  - pasar a un plan de pago."
     fi
     echo
-    echo "IMPORTANTE: cron solo corre si el Mac esta ENCENDIDO y DESPIERTO."
-    echo "Con la tapa cerrada o en reposo, el barrido de esa hora se pierde y"
-    echo "no se repite. Si tienes un servidor que no se apaga, es mejor sitio."
+    if [ "$(uname)" = "Darwin" ]; then
+        echo "IMPORTANTE: cron solo corre si el Mac esta ENCENDIDO y DESPIERTO."
+        echo "Con la tapa cerrada o en reposo, el barrido de esa hora se pierde y"
+        echo "no se repite. Si tienes un servidor que no se apaga, es mejor sitio."
+    fi
 fi
 
 if [ "$SOLO_COLECTA" -eq 0 ]; then
@@ -221,6 +242,7 @@ BLOQUE="$BLOQUE
 # Diagnostico semanal (lunes): avisa si los datos envejecen o falta cobertura
 0 8 * * 1 $WRAP doctor
 $FIN"
+convertir_horas
 
 echo "Se anadiran estas entradas a tu crontab:"
 echo "----------------------------------------"

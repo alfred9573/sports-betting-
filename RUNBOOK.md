@@ -657,6 +657,57 @@ Si es positivo y se mantiene hasta ~200-300 apuestas, ahí se puede hablar de
 dinero real con montos chicos. **El ROI de 30 o 50 apuestas es casi todo
 suerte**: el comando te lo recuerda.
 
+## 5i. Correrlo en un servidor en vez del Mac
+
+Con el Mac, cada barrido que coincide con la tapa cerrada se pierde, y el de
+cierre del domingo es justo el que más importa. Un servidor que no se apaga lo
+resuelve. Lo que hay que saber antes:
+
+- **Las horas se convierten solas.** Los horarios están escritos en hora de
+  Ciudad de México y el instalador los pasa a la hora del servidor (en UTC, +6
+  horas, con el cambio de día cuando cruza la medianoche). Si el servidor tiene
+  horario de verano, avisa: mejor que esté en UTC.
+- **No toca lo que ya corre ahí.** El instalador y el desinstalador solo
+  reemplazan el bloque `# --- betbot ---` del crontab.
+- **Consumo:** entrenar los modelos de NFL ocupa ~700 MB de memoria durante
+  ~20 segundos, un par de veces por semana, con prioridad baja (`nice`). Revisa
+  antes con `free -h` que haya al menos 1.5 GB disponibles.
+- **Nunca los dos a la vez.** Si el cron sigue en el Mac y también en el
+  servidor, los créditos se gastan dos veces y la cuota se acaba a mitad de mes.
+
+En el servidor:
+
+```bash
+python3 --version        # tiene que ser 3.11 o más
+free -h                  # columna "available": al menos 1.5G
+cd ~ && git clone https://github.com/alfred9573/sports-betting-.git
+cd ~/sports-betting- && bash scripts/setup.sh
+```
+
+Desde el Mac, copia tu configuración y el archivo de líneas (cambia la IP):
+
+```bash
+scp ~/sports-betting-/.env root@IP_DEL_SERVIDOR:~/sports-betting-/.env
+scp ~/sports-betting-/data/odds_archive.db root@IP_DEL_SERVIDOR:~/sports-betting-/data/
+```
+
+En el servidor otra vez:
+
+```bash
+echo 'betbot() { (cd ~/sports-betting- && .venv/bin/python -m betbot.cli "$@") }' >> ~/.bashrc
+source ~/.bashrc
+betbot ingest-players
+bash scripts/install-cron.sh --solo-colecta --props=3 nfl
+```
+
+Y al final, en el Mac, quita su cron:
+
+```bash
+cd ~/sports-betting- && bash scripts/uninstall-cron.sh
+```
+
+Para ver resultados: `ssh` al servidor y `betbot papel --sport nfl --resumen`.
+
 ## 6. Dinero de papel: qué mirar y cuándo decidir
 
 Apunta las señales en papel. No muevas dinero real todavía.
